@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,7 +25,7 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -export([info/0, get_uas_avg/0, response_time/1]).
--export([version/0, deps/0, parse_config/1, init/2, terminate/2]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 
 -include("../include/nksip.hrl").
 -include("../include/nksip_call.hrl").
@@ -42,43 +42,24 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
-
-
-parse_config(Opts) ->
-    case nksip_config:get(nksip_stats_period) of
-        undefined ->
-            {ok, Opts};
-        Period when is_integer(Period), Period>0 ->
-            {ok, Opts};
-        _ ->
-            {error, {invalid_global_config, nksip_stats_period}}
-    end.
-
-
-%% @doc Called when the plugin is started 
--spec init(nksip:app_id(), nksip_sipapp_srv:state()) ->
-    {ok, nksip_siapp_srv:state()}.
-
-init(_AppId, SipAppState) ->
+plugin_start(#{id:=SrvId, cache:=_Cache}=SrvSpec) ->
     case whereis(nksip_stats_srv) of
         undefined ->
+            Period = maps:get(nksip_stats_period, SrvSpec, 5),
             Child = {
                 nksip_stats_srv,
-                {nksip_stats_srv, start_link, []},
+                {nksip_stats_srv, start_link, [Period]},
                 permanent,
                 5000,
                 worker,
@@ -88,17 +69,13 @@ init(_AppId, SipAppState) ->
         _ ->
             ok
     end,
-    {ok, SipAppState}.
+    lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec}.
 
 
-
-%% @doc Called when the plugin is shutdown
--spec terminate(nksip:app_id(), nksip_sipapp_srv:state()) ->
-    {ok, nksip_sipapp_srv:state()}.
-
-terminate(_AppId, SipAppState) ->  
-    % We don't remove nksip_stats_srv, in case other SipApp is using it
-    {ok, SipAppState}.
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec}.
 
 
 %% ===================================================================
@@ -112,13 +89,13 @@ terminate(_AppId, SipAppState) ->
 
 info() ->
     [
-        {calls, nksip_counters:value(nksip_calls)},
-        {dialogs, nksip_counters:value(nksip_dialogs)},
+        {calls, nklib_counters:value(nksip_calls)},
+        {dialogs, nklib_counters:value(nksip_dialogs)},
         {routers_queue, nksip_router:pending_msgs()},
         {routers_pending, nksip_router:pending_work()},
-        {connections, nksip_counters:value(nksip_connections)},
-        {counters_queue, nksip_counters:pending_msgs()},
-        {core_queues, nksip_sipapp_srv:pending_msgs()},
+        {connections, nklib_counters:value(nksip_connections)},
+        {counters_queue, nklib_counters:pending_msgs()},
+        {core_queues, nkservice_server:pending_msgs()},
         {uas_response, nksip_stats:get_uas_avg()}
     ].
 
@@ -132,7 +109,7 @@ get_uas_avg() ->
 
 
 %% @private Informs the module about the last response time
--spec response_time(nksip_lib:l_timestamp()) ->
+-spec response_time(nklib_util:l_timestamp()) ->
     ok.
 
 response_time(Time) when is_number(Time) ->

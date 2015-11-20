@@ -20,7 +20,7 @@
 %%
 %% -------------------------------------------------------------------
 
--module(inline_test).
+-module(basic2_test).
 
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/nksip.hrl").
@@ -28,7 +28,7 @@
 -compile([export_all]).
 
 
-inline_test_() ->
+basic2_test_() ->
     {setup, spawn, 
         fun() -> start() end,
         fun(_) -> stop() end,
@@ -43,25 +43,25 @@ inline_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(server1, ?MODULE, [], [
-        {from, "\"NkSIP Basic SUITE Test Server\" <sip:server@nksip>"},
+    ok = tests_util:start(server1, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Server\" <sip:server@nksip>"},
+        {sip_local_host, "127.0.0.1"},
         {plugins, [nksip_registrar]},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]}
+        {transports, "sip:all:5060, <sip:all:5061;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_route, "<sip:127.0.0.1;lr>"},
         {plugins, [nksip_uac_auto_auth]},
-        {local_host, "127.0.0.1"},
-        {route, "<sip:127.0.0.1;lr>"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]}
+        {transports, "sip:all:5070, <sip:all:5071;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"},
-        {local_host, "127.0.0.1"},
-        {route, "<sip:127.0.0.1;lr>"}]),
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_route, "<sip:127.0.0.1;lr>"}]),
 
     tests_util:log(),
     ?debugFmt("Starting ~p", [?MODULE]).
@@ -76,9 +76,9 @@ stop() ->
 basic() ->
     Ref = make_ref(),
     Pid = self(),
-    ok = nksip:put(server1, inline_test, {Ref, Pid}),
-    ok = nksip:put(client1, inline_test, {Ref, Pid}),
-    ok = nksip:put(client2, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(server1, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(client1, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(client2, inline_test, {Ref, Pid}),
     nksip_registrar:clear(server1),
     
     {ok, 200, []} = nksip_uac:register(client1, "sip:127.0.0.1", [contact]),
@@ -118,18 +118,18 @@ basic() ->
             {server1, route}, {server1, session_stop}, {server1, dialog_stop},
             {client1, session_stop}, {client1, dialog_stop}, 
             {client2, bye}, {client2, session_stop}, {client2, dialog_stop}]),
-    nksip:del(server1, inline_test),
-    nksip:del(client1, inline_test),
-    nksip:del(client2, inline_test),
+    nkservice_server:del(server1, inline_test),
+    nkservice_server:del(client1, inline_test),
+    nkservice_server:del(client2, inline_test),
     ok.
 
 
 cancel() ->
     Ref = make_ref(),
     Pid = self(),
-    ok = nksip:put(server1, inline_test, {Ref, Pid}),
-    ok = nksip:put(client1, inline_test, {Ref, Pid}),
-    ok = nksip:put(client2, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(server1, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(client1, inline_test, {Ref, Pid}),
+    ok = nkservice_server:put(client2, inline_test, {Ref, Pid}),
 
     {ok, 200, []} = nksip_uac:register(client2, "sip:127.0.0.1", [contact]),
     ok = tests_util:wait(Ref, [{server1, route}]),
@@ -147,9 +147,9 @@ cancel() ->
             {client1, dialog_start}, {client1, dialog_stop},
             {client2, invite}, {client2, cancel},
             {client2, dialog_start}, {client2, dialog_stop}]),
-    nksip:del(server1, inline_test),
-    nksip:del(client1, inline_test),
-    nksip:del(client2, inline_test),
+    nkservice_server:del(server1, inline_test),
+    nkservice_server:del(client1, inline_test),
+    nkservice_server:del(client2, inline_test),
     ok.
 
 
@@ -159,10 +159,10 @@ auth() ->
 
     Hd = {add, "x-nk-auth", true},
     {ok, 407, []} = nksip_uac:options(client1, SipS1, [Hd]),
-    {ok, 200, []} = nksip_uac:options(client1, SipS1, [Hd, {pass, "1234"}]),
+    {ok, 200, []} = nksip_uac:options(client1, SipS1, [Hd, {sip_pass, "1234"}]),
 
     {ok, 407, []} = nksip_uac:register(client1, SipS1, [Hd]),
-    {ok, 200, []} = nksip_uac:register(client1, SipS1, [Hd, {pass, "1234"}, contact]),
+    {ok, 200, []} = nksip_uac:register(client1, SipS1, [Hd, {sip_pass, "1234"}, contact]),
 
     {ok, 200, []} = nksip_uac:options(client1, SipS1, [Hd]),
     ok.
@@ -170,12 +170,12 @@ auth() ->
 
 %%%%%%%%%%%%%%%%%%%%%%%  CallBacks (servers and clients) %%%%%%%%%%%%%%%%%%%%%
 
-init([]) ->
-    {ok, []}.
+init(_, State) ->
+    {ok, State}.
 
 
 sip_get_user_pass(User, Realm, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             case {User, Realm} of
                 {<<"client1">>, <<"nksip">>} -> <<"1234">>;
@@ -188,7 +188,7 @@ sip_get_user_pass(User, Realm, Req, _Call) ->
 
 
 sip_authorize(Auth, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             case nksip_sipmsg:header(<<"x-nk-auth">>, Req) of
                 [<<"true">>] ->
@@ -196,7 +196,7 @@ sip_authorize(Auth, Req, _Call) ->
                         true ->
                             ok;
                         false ->
-                            case nksip_lib:get_value({digest, <<"nksip">>}, Auth) of
+                            case nklib_util:get_value({digest, <<"nksip">>}, Auth) of
                                 true -> ok;
                                 false -> forbidden;
                                 undefined -> {proxy_authenticate, <<"nksip">>}
@@ -211,7 +211,7 @@ sip_authorize(Auth, Req, _Call) ->
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             send_reply(Req, route),
             Opts = [
@@ -224,7 +224,7 @@ sip_route(Scheme, User, Domain, Req, _Call) ->
                 true when Domain =:= <<"nksip">> ->
                     case nksip_registrar:find(server1, Scheme, User, Domain) of
                         [] -> 
-                            lager:notice("E: ~p, ~p, ~p", [Scheme, User, Domain]),
+                            % lager:notice("E: ~p, ~p, ~p", [Scheme, User, Domain]),
                             {reply, temporarily_unavailable};
                         UriList ->
                          {proxy, UriList, Opts}
@@ -287,10 +287,10 @@ sip_ack(Req, _Call) ->
 
 sip_options(Req, _Call) ->
     send_reply(Req, options),
-    App = nksip_sipmsg:meta(app_name, Req),
+    App = nksip_sipmsg:meta(srv_name, Req),
     Ids = nksip_sipmsg:header(<<"x-nk-id">>, Req),
     {ok, ReqId} = nksip_request:get_handle(Req),
-    Reply = {ok, [{add, "x-nk-id", [nksip_lib:to_binary(App)|Ids]}]},
+    Reply = {ok, [{add, "x-nk-id", [nklib_util:to_binary(App)|Ids]}]},
     spawn(fun() -> nksip_request:reply(Reply, ReqId) end),
     noreply.
 
@@ -317,11 +317,11 @@ sip_session_update(State, Dialog, _Call) ->
 
 send_reply(Elem, Msg) ->
     App = case Elem of
-        #sipmsg{} -> nksip_sipmsg:meta(app_name, Elem);
-        #dialog{} -> nksip_dialog_lib:meta(app_name, Elem)
+        #sipmsg{} -> nksip_sipmsg:meta(srv_name, Elem);
+        #dialog{} -> nksip_dialog_lib:meta(srv_name, Elem)
     end,
-    case nksip:get(App, inline_test) of
-        {ok, {Ref, Pid}} -> Pid ! {Ref, {App, Msg}};
+    case nkservice_server:get(App, inline_test) of
+        {Ref, Pid} -> Pid ! {Ref, {App, Msg}};
         _ -> ok
     end.
 

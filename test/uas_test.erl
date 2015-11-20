@@ -44,23 +44,30 @@ uas_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(server1, ?MODULE, server1, [
-        {from, "\"NkSIP Basic SUITE Test Server\" <sip:server1@nksip>"},
-        {supported, "a;a_param, 100rel"},
+    ok = tests_util:start(server1, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Server\" <sip:server1@nksip>"},
+        {sip_supported, "a;a_param, 100rel"},
+        {sip_uac_auto_register_timer, 1},
         {plugins, [nksip_registrar]},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]},
-        {nksip_uac_auto_register_timer, 1}
+        {transports, "sip:all:5060, <sip:all:5061;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(client1, ?MODULE, client1, [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]},
-        {plugins, [nksip_uac_auto_register]},
-        {nksip_uac_auto_register_timer, 1}
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
+        {sip_uac_auto_register_timer, 1},
+        {transports, ["<sip:all:5070>", "<sip:all:5071;transport=tls>"]},
+        {plugins, [nksip_uac_auto_register]}
     ]),
             
-    {ok, _} = nksip:start(client2, ?MODULE, client2, [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"}]),
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"}]),
+
+    ok = tests_util:start(server2, ?MODULE, [
+        {sip_registrar_min_time, 1},
+        {sip_uac_auto_register_timer, 1},
+        {plugins, [nksip_registrar]},
+        {transports, "sip:all:5080"}
+    ]),
 
     tests_util:log(),
     ?debugFmt("Starting ~p", [?MODULE]).
@@ -110,7 +117,7 @@ uas() ->
 
     % Force invalid response
     lager:warning("Next warning about a invalid sipreply is expected"),
-    {ok, 500,  [{reason_phrase, <<"Invalid SipApp Response">>}]} = 
+    {ok, 500,  [{reason_phrase, <<"Invalid Service Response">>}]} = 
         nksip_uac:options(client1, "sip:127.0.0.1", [
             {add, "x-nk-op", "reply-invalid"}, {meta, [reason_phrase]}]),
     ok.
@@ -118,24 +125,24 @@ uas() ->
 
 auto() ->
     % Start a new server to test ping and register options
-    nksip:stop(server2),
-    {ok, _} = nksip:start(server2, ?MODULE, server2, [
-        {plugins, [nksip_registrar]},
-        {transports, [{udp, all, 5080}]},
-        {nksip_registrar_min_time, 1},
-        {nksip_uac_auto_register_timer, 1}
-    ]),
+    % nksip:stop(server2),
+    % ok = tests_util:start(server2, ?MODULE, [
+    %     {plugins, [nksip_registrar]},
+    %     {transports, "sip:all:5080"},
+    %     {sip_registrar_min_time, 1},
+    %     {sip_uac_auto_register_timer, 1}
+    % ]),
     timer:sleep(200),
-    {error, invalid_app} = nksip_uac_auto_register:start_ping(none, ping1, "sip::a", []),
+    {error, service_not_found} = nksip_uac_auto_register:start_ping(none, ping1, "sip::a", []),
     {error, invalid_uri} = nksip_uac_auto_register:start_ping(client1, ping1, "sip::a", []),
     Ref = make_ref(),
     
-    ok = nksip:put(client1, callback, {Ref, self()}),
+    ok = nkservice_server:put(client1, callback, {Ref, self()}),
     
     {ok, true} = nksip_uac_auto_register:start_ping(client1, ping1, 
                                 "<sip:127.0.0.1:5080;transport=tcp>", [{expires, 5}]),
 
-    {error, invalid_app} = nksip_uac_auto_register:start_register(none, reg1, "sip::a", []),
+    {error, service_not_found} = nksip_uac_auto_register:start_register(none, reg1, "sip::a", []),
     {error, invalid_uri} = nksip_uac_auto_register:start_register(client1, reg1, "sip::a", []),
     {ok, true} = nksip_uac_auto_register:start_register(client1, reg1, 
                                 "<sip:127.0.0.1:5080;transport=tcp>", [{expires, 1}]),
@@ -145,7 +152,7 @@ auto() ->
 
     ok = tests_util:wait(Ref, [{ping, ping1, true}, {reg, reg1, true}]),
 
-    lager:info("Next infos about connection error to port 9999 are expected"),
+    lager:notice("Next notices about connection error to port 9999 are expected"),
     {ok, false} = nksip_uac_auto_register:start_ping(client1, ping2, 
                                             "<sip:127.0.0.1:9999;transport=tcp>",
                                             [{expires, 1}]),
@@ -165,14 +172,15 @@ auto() ->
     [{ping1, true, _}] = nksip_uac_auto_register:get_pings(client1),
     [{reg1, true, _}] = nksip_uac_auto_register:get_registers(client1),
 
+    ok = nksip_uac_auto_register:stop_ping(client1, ping1),
+    ok = nksip_uac_auto_register:stop_register(client1, reg1),
     ok = nksip:stop(server2),
-    lager:info("Next info about connection error to port 5080 is expected"),
+    timer:sleep(500),
+    lager:notice("Next notice about connection error to port 5080 is expected"),
     {ok, false} = nksip_uac_auto_register:start_ping(client1, ping3, 
                                             "<sip:127.0.0.1:5080;transport=tcp>",
                                             [{expires, 1}]),
-    ok = nksip_uac_auto_register:stop_ping(client1, ping1),
     ok = nksip_uac_auto_register:stop_ping(client1, ping3),
-    ok = nksip_uac_auto_register:stop_register(client1, reg1),
     [] = nksip_uac_auto_register:get_pings(client1),
     [] = nksip_uac_auto_register:get_registers(client1),
     ok.
@@ -181,13 +189,13 @@ auto() ->
 timeout() ->
     SipC1 = "<sip:127.0.0.1:5070;transport=tcp>",
 
-    % {ok, _} = nksip:update(client1, [{sipapp_timeout, 0.02}]),
+    % ok = nksip:update(client1, [{sipapp_timeout, 0.02}]),
 
     % % Client1 callback module has a 50msecs delay in route()
-    % {ok, 500, [{reason_phrase, <<"No SipApp Response">>}]} = 
+    % {ok, 500, [{reason_phrase, <<"No Server Response">>}]} = 
     %     nksip_uac:options(client2, SipC1, [{meta,[reason_phrase]}]),
 
-    {ok, _} = nksip:update(client1, [{timer_t1, 10}, {timer_c, 1}, {sipapp_timeout, 10}]),
+    ok = nksip:update(client1, [{sip_timer_t1, 10}, {sip_timer_c, 1}]),
 
     Hd1 = {add, "x-nk-sleep", 2000},
     {ok, 408, [{reason_phrase, <<"No-INVITE Timeout">>}]} = 
@@ -203,16 +211,16 @@ timeout() ->
 %%%%%%%%%%%%%%%%%%%%%%%  CallBacks (servers and clients) %%%%%%%%%%%%%%%%%%%%%
 
 
-init(Id) ->
-    ok = nksip:put(Id, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
-    {ok, []}.
+init(#{name:=Id}, State) ->
+    ok = nkservice_server:put(Id, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
+    {ok, State}.
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             Opts = [record_route, {insert, "x-nk-server", server1}],
-            {ok, Domains} = nksip:get(server1, domains),
+            Domains = nkservice_server:get(server1, domains),
             case lists:member(Domain, Domains) of
                 true when User =:= <<>> ->
                     case nksip_request:header(<<"x-nk-op">>, Req) of
@@ -251,7 +259,7 @@ sip_invite(Req, _Call) ->
         {ok, _} -> <<"decline">>
     end,
     Sleep = case nksip_request:header(<<"x-nk-sleep">>, Req) of
-        {ok, [Sleep0]} -> nksip_lib:to_integer(Sleep0);
+        {ok, [Sleep0]} -> nklib_util:to_integer(Sleep0);
         {ok, _} -> 0
     end,
     {ok, ReqId} = nksip_request:get_handle(Req),
@@ -289,7 +297,7 @@ sip_options(Req, _Call) ->
             spawn(
                 fun() ->
                     nksip_request:reply(101, ReqId), 
-                    timer:sleep(nksip_lib:to_integer(Sleep0)),
+                    timer:sleep(nklib_util:to_integer(Sleep0)),
                     nksip_request:reply({ok, [contact]}, ReqId)
                 end),
             noreply;
@@ -298,14 +306,14 @@ sip_options(Req, _Call) ->
     end.
 
 
-sip_uac_auto_register_updated_ping(PingId, OK, AppId) ->
-    {ok, {Ref, Pid}} = nksip:get(AppId, callback, []),
+sip_uac_auto_register_updated_ping(PingId, OK, SrvId) ->
+    {Ref, Pid} = nkservice_server:get(SrvId, callback, []),
     Pid ! {Ref, {ping, PingId, OK}},
     ok.
 
 
-sip_uac_auto_register_updated_register(RegId, OK, AppId) ->
-    {ok, {Ref, Pid}} = nksip:get(AppId, callback, []),
+sip_uac_auto_register_updated_reg(RegId, OK, SrvId) ->
+    {Ref, Pid} = nkservice_server:get(SrvId, callback, []),
     Pid ! {Ref, {reg, RegId, OK}},
     ok.
 

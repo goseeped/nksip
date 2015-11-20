@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,6 +22,7 @@
 -module(nksip_call_uas_make).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 -export([make/3]).
+-include_lib("nklib/include/nklib.hrl").
 -include("nksip.hrl").
 -include("nksip_call.hrl").
 
@@ -49,7 +50,7 @@ make(Req, Code, Opts) ->
         to_tag_candidate = NewToTag
     } = Req, 
     NewToTag1 = case NewToTag of
-        <<>> -> nksip_lib:hash(make_ref());
+        <<>> -> nklib_util:hash(make_ref());
         _ -> NewToTag
     end,
     case Code of
@@ -67,9 +68,9 @@ make(Req, Code, Opts) ->
                     {To, ToTag}
             end
     end,
-    ReasonPhrase = nksip_lib:get_binary(reason_phrase, Opts),
+    ReasonPhrase = nklib_util:get_binary(reason_phrase, Opts),
     Resp1 = Req#sipmsg{
-        id = nksip_lib:uid(),
+        id = nklib_util:uid(),
         class = {resp, Code, ReasonPhrase},
         vias = Vias1,
         to = {To1, ToTag1},
@@ -127,7 +128,7 @@ parse_opts([], _Req, Resp, _Code, Opts) ->
 
 
 parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
-    #sipmsg{app_id=AppId} = Req,
+    #sipmsg{srv_id=SrvId} = Req,
     Op = case Term of
     
         ignore ->
@@ -185,7 +186,7 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
             case is_binary(ToTag) of
                 true ->
                     #sipmsg{to={#uri{ext_opts=ExtOpts}=To, _}} = Resp,
-                    ExtOpts1 = nksip_lib:store_value(<<"tag">>, ToTag, ExtOpts),
+                    ExtOpts1 = nklib_util:store_value(<<"tag">>, ToTag, ExtOpts),
                     {update, Resp#sipmsg{to={To#uri{ext_opts=ExtOpts1}, ToTag}}, Opts};
                 false ->
                     throw({invalid_config, to_tag})
@@ -198,29 +199,29 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
         {local_host, auto} ->
             {update, Resp, [{local_host, auto}|Opts]};
         {local_host, Host} ->
-            {update, Resp, [{local_host, nksip_lib:to_host(Host)}|Opts]};
+            {update, Resp, [{local_host, nklib_util:to_host(Host)}|Opts]};
         {local_host6, auto} ->
             {update, Resp, [{local_host6, auto}|Opts]};
         {local_host6, Host} ->
-            case nksip_lib:to_ip(Host) of
+            case nklib_util:to_ip(Host) of
                 {ok, HostIp6} -> 
                     % Ensure it is enclosed in `[]'
-                    {update, Resp, [{local_host6, nksip_lib:to_host(HostIp6, true)}|Opts]};
+                    {update, Resp, [{local_host6, nklib_util:to_host(HostIp6, true)}|Opts]};
                 error -> 
-                    {update, Resp, [{local_host6, nksip_lib:to_binary(Host)}|Opts]}
+                    {update, Resp, [{local_host6, nklib_util:to_binary(Host)}|Opts]}
             end;
 
         %% Automatic header generation (replace existing headers)
         user_agent ->
             {replace, <<"user-agent">>, <<"NkSIP ", ?VERSION>>};
         supported ->
-            Supported = AppId:config_supported(),
+            Supported = SrvId:cache_sip_supported(),
             {replace, <<"supported">>, Supported};
         allow ->        
-            {replace, <<"allow">>, AppId:config_allow()};
+            {replace, <<"allow">>, SrvId:cache_sip_allow()};
         accept ->
             #sipmsg{class={req, Method}} = Req,
-            Accept = case AppId:config_accept() of
+            Accept = case SrvId:cache_sip_accept() of
                 undefined when Method=='INVITE'; Method=='UPDATE'; Method=='PRACK' ->
                     <<"application/sdp">>;
                 undefined ->
@@ -230,10 +231,10 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
             end, 
             {replace, <<"accept">>, Accept};
         date ->
-            Date = nksip_lib:to_binary(httpd_util:rfc1123_date()),
+            Date = nklib_util:to_binary(httpd_util:rfc1123_date()),
             {replace, <<"date">>, Date};
         allow_event ->
-            case AppId:config_events() of
+            case SrvId:cache_sip_events() of
                 [] -> ignore;
                 Events -> {replace, <<"allow-event">>, Events}
             end;
@@ -261,7 +262,7 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
             end;
         {service_route, Routes} when Code>=200, Code<300, 
                                      element(2, Req#sipmsg.class)=='REGISTER' ->
-            case nksip_parse:uris(Routes) of
+            case nklib_parse:uris(Routes) of
                 error -> throw({invalid_config, service_route});
                 Uris -> {replace, <<"service-route">>, Uris}
             end;
@@ -270,7 +271,7 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
 
         % Publish options
         {sip_etag, ETag} ->
-            {replace, <<"sip-etag">>, nksip_lib:to_binary(ETag)};
+            {replace, <<"sip-etag">>, nklib_util:to_binary(ETag)};
 
         _ when is_tuple(Term) ->
             throw({invalid_config, element(1, Term)});
@@ -304,8 +305,8 @@ parse_opts([Term|Rest], Req, Resp, Code, Opts) ->
 -spec parse_plugin_opts(nksip:request(), nksip:response(), nksip:optslist()) ->
     {nksip:request(), nksip:optslist()}.
 
-parse_plugin_opts(#sipmsg{app_id=AppId}=Req, Resp, Opts) ->
-    case AppId:nkcb_parse_uas_opt(Req, Resp, Opts) of
+parse_plugin_opts(#sipmsg{srv_id=SrvId}=Req, Resp, Opts) ->
+    case SrvId:nks_sip_parse_uas_opt(Req, Resp, Opts) of
         {continue, [_, Resp1, Opts1]} ->
             {Resp1, Opts1};
         {error, Error} ->

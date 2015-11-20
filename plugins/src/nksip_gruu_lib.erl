@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,6 +22,7 @@
 -module(nksip_gruu_lib).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
+-include_lib("nklib/include/nklib.hrl").
 -include("../include/nksip.hrl").
 -include("../include/nksip_call.hrl").
 -include("nksip_registrar.hrl").
@@ -35,35 +36,35 @@
 -spec update_gruu(nksip:response()) ->
     ok.
 
-update_gruu(#sipmsg{app_id=AppId, contacts=Contacts, class={resp, Code, _}, 
+update_gruu(#sipmsg{srv_id=SrvId, contacts=Contacts, class={resp, Code, _}, 
                       cseq={_, Method}}) ->
     case Method=='REGISTER' andalso Code>=200 andalso Code<300 of
-        true -> find_gruus(AppId, Contacts);
+        true -> find_gruus(SrvId, Contacts);
         false -> ok
     end.
 
 
 %% @private
-find_gruus(AppId, [#uri{ext_opts=Opts}|Rest]) ->
-    HasPubGruu = case nksip_lib:get_value(<<"pub-gruu">>, Opts) of
+find_gruus(SrvId, [#uri{ext_opts=Opts}|Rest]) ->
+    HasPubGruu = case nklib_util:get_value(<<"pub-gruu">>, Opts) of
         undefined -> 
             false;
         PubGruu ->
-            case nksip_parse:ruris(nksip_lib:unquote(PubGruu)) of
+            case nksip_parse:ruris(nklib_util:unquote(PubGruu)) of
                 [PubUri] -> 
-                    nksip_config:put({nksip_gruu_pub, AppId}, PubUri),
+                    nksip_app:put({nksip_gruu_pub, SrvId}, PubUri),
                     true;
                 _ -> 
                     false
             end
     end,
-    HasTmpGruu = case nksip_lib:get_value(<<"temp-gruu">>, Opts) of
+    HasTmpGruu = case nklib_util:get_value(<<"temp-gruu">>, Opts) of
         undefined -> 
             false;
         TempGruu ->
-            case nksip_parse:ruris(nksip_lib:unquote(TempGruu)) of
+            case nksip_parse:ruris(nklib_util:unquote(TempGruu)) of
                 [TempUri] -> 
-                    nksip_config:put({nksip_gruu_temp, AppId}, TempUri),
+                    nksip_app:put({nksip_gruu_temp, SrvId}, TempUri),
                     true;
                 _ -> 
                     false
@@ -71,7 +72,7 @@ find_gruus(AppId, [#uri{ext_opts=Opts}|Rest]) ->
     end,
     case HasPubGruu andalso HasTmpGruu of
         true -> ok;
-        false -> find_gruus(AppId, Rest)
+        false -> find_gruus(SrvId, Rest)
     end;
 
 find_gruus(_, []) ->
@@ -79,10 +80,10 @@ find_gruus(_, []) ->
 
 
 %% @private
--spec find(nksip:app_id(), nksip:uri()) ->
+-spec find(nksip:srv_id(), nksip:uri()) ->
     [nksip:uri()].
 
-find(AppId, #uri{scheme=Scheme, user=User, domain=Domain, opts=Opts}) ->
+find(SrvId, #uri{scheme=Scheme, user=User, domain=Domain, opts=Opts}) ->
     case lists:member(<<"gr">>, Opts) of
         true -> 
             % It is probably a tmp GRUU
@@ -92,25 +93,25 @@ find(AppId, #uri{scheme=Scheme, user=User, domain=Domain, opts=Opts}) ->
                     [
                         nksip_registrar_lib:make_contact(Reg) 
                         || #reg_contact{meta=Meta}=Reg 
-                        <- nksip_registrar_lib:get_info(AppId, Scheme1, User1, Domain1), 
-                        nksip_lib:get_value(nksip_gruu_instance_id, Meta)==InstId,
-                        nksip_lib:get_value(nksip_gruu_tmp_min, Meta, 0)=<Pos
+                        <- nksip_registrar_lib:get_info(SrvId, Scheme1, User1, Domain1), 
+                        nklib_util:get_value(nksip_gruu_instance_id, Meta)==InstId,
+                        nklib_util:get_value(nksip_gruu_tmp_min, Meta, 0)=<Pos
                     ];
                 _ ->
-                    ?notice(AppId, <<>>, 
+                    ?notice(SrvId, <<>>, 
                             "private GRUU not recognized: ~p", [User]),
-                    nksip_registrar_lib:find(AppId, Scheme, User, Domain)
+                    nksip_registrar_lib:find(SrvId, Scheme, User, Domain)
             end;
         false ->
-            case nksip_lib:get_value(<<"gr">>, Opts) of
+            case nklib_util:get_value(<<"gr">>, Opts) of
                 undefined -> 
-                    nksip_registrar_lib:find(AppId, Scheme, User, Domain);
+                    nksip_registrar_lib:find(SrvId, Scheme, User, Domain);
                 InstId ->
                     [
                         nksip_registrar_lib:make_contact(Reg) 
-                        || #reg_contact{meta=Meta}=Reg 
-                        <- nksip_registrar_lib:get_info(AppId, Scheme, User, Domain), 
-                        nksip_lib:get_value(nksip_gruu_instance_id, Meta)==InstId
+                            || #reg_contact{meta=Meta}=Reg 
+                            <- nksip_registrar_lib:get_info(SrvId, Scheme, User, Domain), 
+                            nklib_util:get_value(nksip_gruu_instance_id, Meta)==InstId
                     ]
             end
     end.
@@ -143,21 +144,21 @@ update_regcontact(RegContact, Base, Req, Opts) ->
     #reg_contact{contact=Contact, meta=Meta} = RegContact,
     #reg_contact{call_id=BaseCallId} = Base,
     #sipmsg{to={To, _}, call_id=CallId} = Req,
-    Next = nksip_lib:get_value(nksip_gruu_tmp_next, Meta, 0),
+    Next = nklib_util:get_value(nksip_gruu_tmp_next, Meta, 0),
     Meta1 = case CallId of
         BaseCallId ->
             Meta;
         _ -> 
             % We have changed the Call-ID for this AOR and index, invalidate all
             % temporary GRUUs
-            nksip_lib:store_value(nksip_gruu_tmp_min, Next, Meta)
+            nklib_util:store_value(nksip_gruu_tmp_min, Next, Meta)
     end,
     #uri{scheme=Scheme, ext_opts=ExtOpts} = Contact,
-    InstId = case nksip_lib:get_value(<<"+sip.instance">>, ExtOpts) of
+    InstId = case nklib_util:get_value(<<"+sip.instance">>, ExtOpts) of
         undefined -> <<>>;
-        Inst0 -> nksip_lib:hash(Inst0)
+        Inst0 -> nklib_util:hash(Inst0)
     end,
-    Expires = nksip_lib:get_integer(<<"expires">>, ExtOpts),
+    Expires = nklib_util:get_integer(<<"expires">>, ExtOpts),
     case 
         InstId /= <<>> andalso Expires>0 andalso 
         lists:member({gruu, true}, Opts)
@@ -174,15 +175,15 @@ update_regcontact(RegContact, Base, Req, Opts) ->
                 domain = AORDomain,
                 opts = [{<<"gr">>, InstId}]
             },
-            Pub = list_to_binary([$", nksip_unparse:ruri(PubUri), $"]),
-            ExtOpts2 = nksip_lib:store_value(<<"pub-gruu">>, Pub, ExtOpts),
+            Pub = list_to_binary([$", nklib_unparse:uri3(PubUri), $"]),
+            ExtOpts2 = nklib_util:store_value(<<"pub-gruu">>, Pub, ExtOpts),
             TmpBin = term_to_binary({aor(To), InstId, Next}),
             TmpUri = PubUri#uri{user=encrypt(TmpBin), opts=[<<"gr">>]},
-            Tmp = list_to_binary([$", nksip_unparse:ruri(TmpUri), $"]),
-            ExtOpts3 = nksip_lib:store_value(<<"temp-gruu">>, Tmp, ExtOpts2),
+            Tmp = list_to_binary([$", nklib_unparse:uri3(TmpUri), $"]),
+            ExtOpts3 = nklib_util:store_value(<<"temp-gruu">>, Tmp, ExtOpts2),
             Contact3 = Contact#uri{ext_opts=ExtOpts3},
-            Meta2 = nksip_lib:store_value(nksip_gruu_instance_id, InstId, Meta1),
-            Meta3 = nksip_lib:store_value(nksip_gruu_tmp_next, Next+1, Meta2),
+            Meta2 = nklib_util:store_value(nksip_gruu_instance_id, InstId, Meta1),
+            Meta3 = nklib_util:store_value(nksip_gruu_tmp_next, Next+1, Meta2),
             RegContact#reg_contact{contact=Contact3, meta=Meta3};
         false ->
             RegContact

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,6 +26,7 @@
 -export_type([status/0, incoming/0]).
 
 -import(nksip_call_lib, [update/2]).
+-include_lib("nklib/include/nklib.hrl").
 -include("nksip.hrl").
 -include("nksip_call.hrl").
 
@@ -103,12 +104,12 @@ is_trans_ack(_, _) ->
     nksip_call:call().
 
 process_trans_ack(InvUAS, Call) ->
-    #trans{id=Id, status=Status, proto=Proto} = InvUAS,
+    #trans{id=Id, status=Status, transp=Transp} = InvUAS,
     case Status of
         invite_completed ->
             InvUAS1 = InvUAS#trans{response=undefined},
             InvUAS2 = nksip_call_lib:retrans_timer(cancel, InvUAS1, Call),
-            InvUAS4 = case Proto of 
+            InvUAS4 = case Transp of 
                 udp -> 
                     InvUAS3 = InvUAS2#trans{status=invite_confirmed},
                     nksip_call_lib:timeout_timer(timer_i, InvUAS3, Call);
@@ -157,7 +158,7 @@ process_retrans(UAS, Call) ->
                 {ok, _} ->
                     ?call_info("UAS ~p ~p (~p) sending ~p retransmission", 
                                [Id, Method, Status, Code]);
-                error ->
+                {error, _} ->
                     ?call_notice("UAS ~p ~p (~p) could not send ~p retransmission", 
                                   [Id, Method, Status, Code])
             end;
@@ -178,9 +179,9 @@ is_own_ack(#sipmsg{class={req, 'ACK'}}=Req) ->
         to = {_, ToTag},
         vias = [#via{opts=ViaOpts}|_]
     } = Req,
-    Branch = nksip_lib:get_binary(<<"branch">>, ViaOpts),
+    Branch = nklib_util:get_binary(<<"branch">>, ViaOpts),
     GlobalId = nksip_config_cache:global_id(),
-    nksip_lib:hash({GlobalId, Branch}) == ToTag;
+    nklib_util:hash({GlobalId, Branch}) == ToTag;
 
 is_own_ack(_) ->
     false.
@@ -196,7 +197,7 @@ process_request(Req, UASTransId, Call) ->
         class = {req, Method}, 
         id = MsgId, 
         ruri = RUri, 
-        transport = Transp, 
+        nkport = NkPort, 
         to = {_, ToTag}
     } = Req1,
     #call{
@@ -212,18 +213,19 @@ process_request(Req, UASTransId, Call) ->
         'ACK' -> ack;
         _ -> trying
     end,
+    {ok, {_, Transp, _, _}} = nkpacket:get_local(NkPort),
     UAS = #trans{
         id = NextId,
         class = uas,
         status = Status,
-        start = nksip_lib:timestamp(),
+        start = nklib_util:timestamp(),
         from = undefined,
         opts = [],
         trans_id = UASTransId, 
         request = Req1#sipmsg{dialog_id=DialogId},
         method = Method,
         ruri = RUri,
-        proto = Transp#transport.proto,
+        transp = Transp,
         response = undefined,
         code = 0,
         to_tags = [],
@@ -298,26 +300,27 @@ loop_id(#sipmsg{from={_, FromTag}, cseq={CSeq, Method}}) ->
 preprocess(Req) ->
     #sipmsg{
         to = {_, ToTag},
-        transport = #transport{proto=Proto, remote_ip=Ip, remote_port=Port}, 
+        nkport = NkPort, 
         vias = [Via|ViaR]
     } = Req,
-    Received = nksip_lib:to_host(Ip, false), 
+    {ok, {_, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
+    Received = nklib_util:to_host(Ip, false), 
     ViaOpts1 = [{<<"received">>, Received}|Via#via.opts],
     % For UDP, we honor the rport option
     % For connection transports, we force inclusion of remote port 
     % to reuse the same connection
     ViaOpts2 = case lists:member(<<"rport">>, ViaOpts1) of
-        false when Proto==udp -> 
+        false when Transp==udp -> 
             ViaOpts1;
         _ -> 
-            [{<<"rport">>, nksip_lib:to_binary(Port)} | ViaOpts1 -- [<<"rport">>]]
+            [{<<"rport">>, nklib_util:to_binary(Port)} | ViaOpts1 -- [<<"rport">>]]
     end,
     Via1 = Via#via{opts=ViaOpts2},
-    Branch = nksip_lib:get_binary(<<"branch">>, ViaOpts2),
+    Branch = nklib_util:get_binary(<<"branch">>, ViaOpts2),
     GlobalId = nksip_config_cache:global_id(),
     ToTag1 = case ToTag of
         <<>> -> 
-            nksip_lib:hash({GlobalId, Branch});
+            nklib_util:hash({GlobalId, Branch});
         _ -> 
             ToTag
     end,
@@ -339,10 +342,10 @@ preprocess(Req) ->
 %%   in the ruri
 %%
 %% TODO: Is this working?
-strict_router(#sipmsg{app_id=AppId, ruri=RUri, routes=Routes}=Request) ->
+strict_router(#sipmsg{srv_id=SrvId, ruri=RUri, routes=Routes}=Request) ->
     case 
-        nksip_lib:get_value(<<"nksip">>, RUri#uri.opts) /= undefined 
-        andalso nksip_transport:is_local(AppId, RUri) of
+        nklib_util:get_value(<<"nksip">>, RUri#uri.opts) /= undefined 
+        andalso nksip_util:is_local(SrvId, RUri) of
     true ->
         case lists:reverse(Routes) of
             [] ->
@@ -361,21 +364,22 @@ strict_router(#sipmsg{app_id=AppId, ruri=RUri, routes=Routes}=Request) ->
 % this address, default port and no transport parameter
 ruri_has_maddr(Request) ->
     #sipmsg{
-        app_id = AppId, 
+        srv_id = SrvId, 
         ruri = RUri, 
-        transport=#transport{proto=Proto, local_port=LPort}
+        nkport = NkPort
     } = Request,
-    case nksip_lib:get_binary(<<"maddr">>, RUri#uri.opts) of
+    {ok, {_, Transp, _, LPort}} = nkpacket:get_local(NkPort),
+    case nklib_util:get_binary(<<"maddr">>, RUri#uri.opts) of
         <<>> ->
             Request;
         MAddr -> 
-            case nksip_transport:is_local(AppId, RUri#uri{domain=MAddr}) of
+            case nksip_util:is_local(SrvId, RUri#uri{domain=MAddr}) of
                 true ->
                     case nksip_parse:transport(RUri) of
-                        {Proto, _, LPort} ->
+                        {Transp, _, LPort} ->
                             RUri1 = RUri#uri{
                                 port = 0,
-                                opts = nksip_lib:delete(RUri#uri.opts, 
+                                opts = nklib_util:delete(RUri#uri.opts, 
                                                         [<<"maddr">>, <<"transport">>])
                             },
                             Request#sipmsg{ruri=RUri1};

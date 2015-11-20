@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -34,37 +34,37 @@
 
 % @private Get all current registrations. Use it with care.
 -spec get_all() ->
-    [{nksip:app_id(), nksip:aor(), [#reg_contact{}]}].
+    [{nksip:srv_id(), nksip:aor(), [#reg_contact{}]}].
 
 get_all() ->
     [
-        {AppId, AOR, nksip_store:get({nksip_registrar, AppId, AOR}, [])}
-        || {AppId, AOR} <- all()
+        {SrvId, AOR, nklib_store:get({nksip_registrar, SrvId, AOR}, [])}
+        || {SrvId, AOR} <- all()
     ].
 
 
 %% @private
 print_all() ->
-    Now = nksip_lib:timestamp(),
-    Print = fun({AppId, {Scheme, User, Domain}, Regs}) ->
-        io:format("\n --- ~p --- ~p:~s@~s ---\n", [AppId:name(), Scheme, User, Domain]),
+    Now = nklib_util:timestamp(),
+    Print = fun({SrvId, {Scheme, User, Domain}, Regs}) ->
+        io:format("\n --- ~p --- ~p:~s@~s ---\n", [SrvId:name(), Scheme, User, Domain]),
         lists:foreach(
             fun(#reg_contact{contact=Contact, expire=Expire, q=Q}) ->
-                io:format("    ~s, ~p, ~p\n", [nksip_unparse:uri(Contact), Expire-Now, Q])
+                io:format("    ~s, ~p, ~p\n", [nklib_unparse:uri(Contact), Expire-Now, Q])
             end, Regs)
     end,
     lists:foreach(Print, get_all()),
     io:format("\n\n").
 
 
-%% @private Clear all stored records for all SipApps, only with buil-in database
+%% @private Clear all stored records for all Services, only with buil-in database
 %% Returns the number of deleted items.
 -spec clear() -> 
     integer().
 
 clear() ->
-    Fun = fun(AppId, AOR, _Val, Acc) ->
-        nksip_store:del({nksip_registrar, AppId, AOR}),
+    Fun = fun(SrvId, AOR, _Val, Acc) ->
+        nklib_store:del({nksip_registrar, SrvId, AOR}),
         Acc+1
     end,
     fold(Fun, 0).
@@ -72,17 +72,17 @@ clear() ->
 
 %% @private
 all() -> 
-    fold(fun(AppId, AOR, _Value, Acc) -> [{AppId, AOR}|Acc] end, []).
+    fold(fun(SrvId, AOR, _Value, Acc) -> [{SrvId, AOR}|Acc] end, []).
 
 
 %% @private
 fold(Fun, Acc0) when is_function(Fun, 4) ->
     FoldFun = fun(Key, Value, Acc) ->
         case Key of
-            {nksip_registrar, AppId, AOR} -> Fun(AppId, AOR, Value, Acc);
+            {nksip_registrar, SrvId, AOR} -> Fun(SrvId, AOR, Value, Acc);
             _ -> Acc
         end
     end,
-    nksip_store:fold(FoldFun, Acc0).
+    nklib_store:fold(FoldFun, Acc0).
 
 

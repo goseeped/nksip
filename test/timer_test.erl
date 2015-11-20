@@ -40,43 +40,43 @@ timer_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(p1, ?MODULE, [], [
-        {local_host, "localhost"},
-        no_100,
-        {transports, [{udp, all, 5060}]},
-        {plugins, [nksip_timers]},
-        {nksip_timers_min_se, 2}
+    ok = tests_util:start(p1, ?MODULE, [
+        {sip_local_host, "localhost"},
+        {sip_no_100, true},
+        {sip_timers_min_se, 2},
+        {transports, "sip:all:5060"},
+        {plugins, [nksip_timers]}
     ]),
 
-    {ok, _} = nksip:start(p2, ?MODULE, [], [
-        {local_host, "localhost"},
-        no_100,
-        {transports, [{udp, all, 5070}]},
-        {plugins, [nksip_timers]},
-        {nksip_timers_min_se, 3}
+    ok = tests_util:start(p2, ?MODULE, [
+        {sip_local_host, "localhost"},
+        {sip_no_100, true},
+        {sip_timers_min_se, 3},
+        {transports, "sip:all:5070"},
+        {plugins, [nksip_timers]}
     ]),
 
-    {ok, _} = nksip:start(ua1, ?MODULE, [], [
-        {from, "sip:ua1@nksip"},
-        {local_host, "127.0.0.1"},
-        no_100,
-        {transports, [{udp, all, 5071}]},
-        {plugins, [nksip_timers]},
-        {nksip_timers_min_se, 1}
+    ok = tests_util:start(ua1, ?MODULE, [
+        {sip_from, "sip:ua1@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_no_100, true},
+        {sip_timers_min_se, 1},
+        {transports, "sip:all:5071"},
+        {plugins, [nksip_timers]}
     ]),
 
-    {ok, _} = nksip:start(ua2, ?MODULE, [], [
-        {local_host, "127.0.0.1"},
-        no_100,
-        {transports, [{udp, all, 5072}]},
-        {plugins, [nksip_timers]},
-        {nksip_timers_min_se, 2}
+    ok = tests_util:start(ua2, ?MODULE, [
+        {sip_local_host, "127.0.0.1"},
+        {sip_no_100, true},
+        {sip_timers_min_se, 2},
+        {transports, "sip:all:5072"},
+        {plugins, [nksip_timers]}
     ]),
     
-    {ok, _} = nksip:start(ua3, ?MODULE, [], [
-        {local_host, "127.0.0.1"},
-        no_100,
-        {transports, [{udp, all, 5073}]}
+    ok = tests_util:start(ua3, ?MODULE, [
+        {sip_local_host, "127.0.0.1"},
+        {sip_no_100, true},
+        {transports, "sip:all:5073"}
     ]),
 
 
@@ -99,22 +99,22 @@ basic() ->
     CB = {callback, fun ({req, R, _Call}) -> Self ! {Ref, R}; (_) -> ok end},
 
     % ua2 has a min_session_expires of 2
-    {error, {invalid_config, nksip_timers_se}} = 
-        nksip_uac:invite(ua2, "sip:any", [{nksip_timers_se, 1}]),
+    {error, {invalid_config, sip_timers_se}} = 
+        nksip_uac:invite(ua2, "sip:any", [{sip_timers_se, 1}]),
 
-    % ua1 sends a INVITE to ua2, with nksip_timers_se=1
+    % ua1 sends a INVITE to ua2, with sip_timers_se=1
     % ua2 rejects the request, with a 422 response, including Min-SE=2
-    % ua1 updates its Min-SE to 2, and updates nksip_timers_se=2
+    % ua1 updates its Min-SE to 2, and updates sip_timers_se=2
     % ua2 receives again the INVITE. Now it is valid.
 
     SDP1 = nksip_sdp:new(),
     {ok, 200, [{dialog, Dialog1A}, {<<"session-expires">>,[<<"2;refresher=uas">>]}]} = 
         nksip_uac:invite(ua1, "sip:127.0.0.1:5072", 
-            [{nksip_timers_se, 1}, {meta, [<<"session-expires">>]}, 
+            [{sip_timers_se, 1}, {meta, [<<"session-expires">>]}, 
              CB, auto_2xx_ack, get_request, {body, SDP1}, RepHd]),
    
     % Start events also at ua1
-    ok = nksip:put(ua1, dialogs, [{Dialog1A, Ref, Self}]),
+    ok = nkservice_server:put(ua1, dialogs, [{Dialog1A, Ref, Self}]),
 
     {ok, CallId1} = nksip_dialog:call_id(Dialog1A),
     CSeq1 = receive 
@@ -162,7 +162,7 @@ basic() ->
     % We use Min-SE=3, so ua1 will increment Session-Timer to 3
 
     {ok, 200, _} = nksip_uac:invite(Dialog1B, [auto_2xx_ack, {body, SDP2}, 
-                                               {nksip_timers_min_se, 3}]),
+                                               {sip_timers_min_se, 3}]),
 
     ok = tests_util:wait(Ref, [
         {ua2, dialog_confirmed},
@@ -195,7 +195,7 @@ basic() ->
     % 422 and a new request will be sent
 
     {ok, 200, [{<<"session-expires">>,[<<"2;refresher=uas">>]}]} = 
-        nksip_uac:update(Dialog1A, [{nksip_timers_se, 1}, {meta, [<<"session-expires">>]}]),
+        nksip_uac:update(Dialog1A, [{sip_timers_se, 1}, {meta, [<<"session-expires">>]}]),
 
     {ok, 2} = nksip_timers:get_session_expires(Dialog1A),
     {ok, undefined} = nksip_timers:get_session_refresh( Dialog1A),
@@ -226,7 +226,7 @@ basic() ->
     % Now ua1 refreshes, but change roles, becoming refresher. 
     % Using session_expires option overrides automatic behaviour, no Min-SE is sent
 
-    {ok, 200, []} = nksip_uac:update(Dialog1A, [{nksip_timers_se, {2,uac}}]),
+    {ok, 200, []} = nksip_uac:update(Dialog1A, [{sip_timers_se, {2,uac}}]),
 
     {ok, 90} = nksip_timers:get_session_expires(Dialog1A),
     true = erlang:is_integer(element(2, nksip_timers:get_session_refresh( Dialog1A))),
@@ -245,7 +245,7 @@ basic() ->
 
     % Lower time to wait for timeout
 
-    {ok, 200, []} = nksip_uac:update(Dialog1A, [{nksip_timers_se, {2,uac}}, {nksip_timers_min_se, 2}]),
+    {ok, 200, []} = nksip_uac:update(Dialog1A, [{sip_timers_se, {2,uac}}, {sip_timers_min_se, 2}]),
     SDP3 = nksip_sdp:increment(SDP2),
     ok = tests_util:wait(Ref, [
         {ua1, {refresh, SDP3}},
@@ -266,13 +266,13 @@ proxy() ->
     SDP1 = nksip_sdp:new(),
     {ok, 200, [{dialog, Dialog1A}, {<<"session-expires">>,[<<"3;refresher=uas">>]}]} = 
         nksip_uac:invite(ua1, "sip:127.0.0.1:5072", 
-            [{nksip_timers_se, 1}, {meta, [<<"session-expires">>]}, 
+            [{sip_timers_se, 1}, {meta, [<<"session-expires">>]}, 
              CB, auto_2xx_ack, get_request, {body, SDP1}, RepHd,
              {route, "<sip:127.0.0.1:5060;lr>"}
             ]),
    
     % Start events also at ua1
-    ok = nksip:put(ua1, dialogs, [{Dialog1A, Ref, Self}]),
+    ok = nkservice_server:put(ua1, dialogs, [{Dialog1A, Ref, Self}]),
 
     {ok, CallId1} = nksip_dialog:call_id(Dialog1A),
     receive 
@@ -317,7 +317,7 @@ proxy() ->
     {ok, 3} = nksip_timers:get_session_expires(Dialog1A),
     {ok, undefined} = nksip_timers:get_session_refresh( Dialog1A),
 
-    {ok, 200, []} = nksip_uac:update(Dialog1A, [{nksip_timers_se, 1000}]),
+    {ok, 200, []} = nksip_uac:update(Dialog1A, [{sip_timers_se, 1000}]),
     {ok, 1000} = nksip_timers:get_session_expires(Dialog1A),
     {ok, 1000} = nksip_timers:get_session_expires(Dialog1B),
     {ok, 1000} = nksip_timers:get_session_expires(Dialog1A),
@@ -330,7 +330,7 @@ proxy() ->
     % time of 1800, and it is > MinSE, it chages the value
     {ok, 200, [{dialog, Dialog2}, {<<"session-expires">>,[<<"1800;refresher=uas">>]}]} = 
         nksip_uac:invite(ua1, "sip:127.0.0.1:5072", 
-            [{nksip_timers_se, 1801}, {meta, [<<"session-expires">>]}, 
+            [{sip_timers_se, 1801}, {meta, [<<"session-expires">>]}, 
              auto_2xx_ack, {body, SDP1}, {route, "<sip:127.0.0.1:5060;lr>"}
             ]),
     {ok, 200, []} = nksip_uac:bye(Dialog2, []),
@@ -342,7 +342,7 @@ proxy() ->
     {ok, 200, [{dialog, Dialog3A}, {<<"session-expires">>,[<<"1800;refresher=uas">>]}, 
                {require, []}]} = 
         nksip_uac:invite(ua1, "sip:127.0.0.1:5072", 
-            [{replace, nksip_timers_se, <<>>}, {supported, "100rel,path"}, 
+            [{replace, sip_timers_se, <<>>}, {supported, "100rel,path"}, 
              {meta, [<<"session-expires">>, require]}, 
              auto_2xx_ack, {body, SDP1}, {route, "<sip:127.0.0.1:5060;lr>"}
             ]),
@@ -383,7 +383,7 @@ proxy() ->
     {ok, 200, [{dialog, Dialog5A}, {<<"session-expires">>,[]}, 
                {require, []}]} = 
         nksip_uac:invite(ua1, "sip:127.0.0.1:5073", 
-            [{replace, nksip_timers_se, <<>>}, {supported, "100rel,path"}, 
+            [{replace, sip_timers_se, <<>>}, {supported, "100rel,path"}, 
              {meta, [<<"session-expires">>, require]}, 
              auto_2xx_ack, {body, SDP1}, {route, "<sip:127.0.0.1:5060;lr>"}
             ]),
@@ -404,7 +404,7 @@ proxy() ->
 
 
 sip_route(_Scheme, _User, _Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, p1} -> 
             {proxy, ruri, [record_route, {route, "<sip:127.0.0.1:5070;lr>"}]};
         {ok, p2} ->

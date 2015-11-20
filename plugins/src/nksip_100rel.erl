@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,7 +25,7 @@
 -include("../include/nksip.hrl").
 -include("../include/nksip_call.hrl").
 
--export([version/0, deps/0, parse_config/1]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 
 
 %% ===================================================================
@@ -37,34 +37,52 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    UpdFun1 = fun(Allow) -> nklib_util:store_value(<<"PRACK">>, Allow) end,
+    SrvSpec1 = nksip:plugin_update_value(sip_allow, UpdFun1, SrvSpec),
+    UpdFun2 = fun(Supported) -> nklib_util:store_value(<<"100rel">>, Supported) end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun2, SrvSpec1),
+    lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
-parse_config(Opts) ->
-    Allow = nksip_lib:get_value(allow, Opts),
-    Opts1 = case lists:member(<<"PRACK">>, Allow) of
-        true -> 
-            Opts;
-        false -> 
-            nksip_lib:store_value(allow, Allow++[<<"PRACK">>], Opts)
-    end,
-    Supported = nksip_lib:get_value(supported, Opts),
-    Opts2 = case lists:member(<<"100rel">>, Supported) of
-        true -> Opts1;
-        false -> nksip_lib:store_value(supported, Supported++[<<"100rel">>], Opts1)
-    end,
-    {ok, Opts2}.
+
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    UpdFun1 = fun(Allow) -> Allow -- [<<"PRACK">>] end,
+    SrvSpec1 = nksip:plugin_update_value(sip_allow, UpdFun1, SrvSpec),
+    UpdFun2 = fun(Supported) -> Supported -- [<<"100rel">>] end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun2, SrvSpec1),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
+
+
+% %% @doc Parses this plugin specific configuration
+% -spec parse_config(nksip:optslist()) ->
+%     {ok, nksip:optslist()} | {error, term()}.
+
+% parse_config(Opts) ->
+%     Allow = nklib_util:get_value(sip_allow, Opts),
+%     Opts1 = case lists:member(<<"PRACK">>, Allow) of
+%         true -> 
+%             Opts;
+%         false -> 
+%             nklib_util:store_value(sip_allow, Allow++[<<"PRACK">>], Opts)
+%     end,
+%     Supported = nklib_util:get_value(sip_supported, Opts),
+%     Opts2 = case lists:member(<<"100rel">>, Supported) of
+%         true -> Opts1;
+%         false -> nklib_util:store_value(sip_supported, Supported++[<<"100rel">>], Opts1)
+%     end,
+%     {ok, Opts2}.
 
 

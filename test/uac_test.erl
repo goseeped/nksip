@@ -44,13 +44,13 @@ uac_test_() ->
 
 start() ->
     tests_util:start_nksip(),
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
-        {transports, [ {udp, all, 5070},{tls, all, 5071}]}
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client1@nksip>"},
+        {transports, "sip:all:5070, <sip:all:5071;transport=tls>"}
     ]),
             
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"}]),
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "\"NkSIP Basic SUITE Test Client\" <sip:client2@nksip>"}]),
     tests_util:log(),
     ?debugFmt("Starting ~p", [?MODULE]).
 
@@ -70,15 +70,15 @@ uac() ->
     {error, {invalid, <<"contact">>}} = nksip_uac:options(client2, SipC1, [{contact, "<>"}]),
     {error, {invalid_config, cseq_num}} = nksip_uac:options(client2, SipC1, [{cseq_num, -1}]),
     % lager:error("Next error about 'unknown_sipapp' is expected"),
-    {error, sipapp_not_found} = nksip_uac:options(none, SipC1, []),
+    {error, service_not_found} = nksip_uac:options(none, SipC1, []),
     lager:error("Next 2 errors about 'too_many_calls' are expected"),
-    nksip_counters:incr(nksip_calls, 1000000000),
+    nklib_counters:incr(nksip_calls, 1000000000),
     {error, too_many_calls} = nksip_uac:options(client2, SipC1, []),
-    nksip_counters:incr(nksip_calls, -1000000000),
-    {ok, Client2Id} = nksip:find_app_id(client2),
-    nksip_counters:incr({nksip_calls, Client2Id}, 1000000000),
+    nklib_counters:incr(nksip_calls, -1000000000),
+    {ok, Client2Id} = nkservice_server:get_srv_id(client2),
+    nklib_counters:incr({nksip_calls, Client2Id}, 1000000000),
     {error, too_many_calls} = nksip_uac:options(client2, SipC1, []),
-    nksip_counters:incr({nksip_calls, Client2Id}, -1000000000),
+    nklib_counters:incr({nksip_calls, Client2Id}, -1000000000),
 
     Self = self(),
     Ref = make_ref(),
@@ -106,8 +106,8 @@ uac() ->
     end,
 
     % Sync
-    {ok, 200, Values2} = nksip_uac:options(client2, SipC1, [{meta, [app_name, handle, call_id]}]),
-    [{app_name, client2}, {handle, RespId2}, {call_id, CallId2}] = Values2,
+    {ok, 200, Values2} = nksip_uac:options(client2, SipC1, [{meta, [srv_name, handle, call_id]}]),
+    [{srv_name, client2}, {handle, RespId2}, {call_id, CallId2}] = Values2,
     {ok, CallId2} = nksip_response:call_id(RespId2),
     {error, _} = nksip_dialog:meta(status, RespId2),
     {error, invalid_dialog} = nksip_uac:options(RespId2, []),
@@ -125,7 +125,7 @@ uac() ->
     {ok, 486, [{call_id, CallId4}, {handle, RespId4}]} = 
         nksip_uac:invite(client2, SipC1, [CB, get_request, {meta, [call_id, handle]}|Hds]),
 
-    lager:notice("RESPID4: ~p", [RespId4]),
+    % lager:notice("RESPID4: ~p", [RespId4]),
 
 
     {ok, CallId4} = nksip_response:call_id(RespId4),
@@ -191,7 +191,7 @@ info() ->
 
 timeout() ->
     SipC1 = "sip:127.0.0.1:5070",
-    {ok, _} = nksip:update(client2, [{timer_t1, 10}, {timer_c, 1}]),
+    ok = nksip:update(client2, [{sip_timer_t1, 10}, {sip_timer_c, 1}]),
 
     lager:notice("Next notices about several timeouts are expected"),
 
@@ -229,7 +229,7 @@ message() ->
     receive 
         {Ref, {ok, 10, RawDate, <<"text/plain">>, <<"Message">>}} ->
             Date = httpd_util:convert_request_date(binary_to_list(RawDate)),
-            true = nksip_lib:timestamp() - nksip_lib:gmt_to_timestamp(Date) < 2
+            true = nklib_util:timestamp() - nklib_util:gmt_to_timestamp(Date) < 2
         after 1000 -> 
             error(message)
     end,
@@ -262,7 +262,7 @@ sip_invite(Req, _Call) ->
         {ok, _} -> <<"decline">>
     end,
     Sleep = case nksip_request:header(<<"x-nk-sleep">>, Req) of
-        {ok, [Sleep0]} -> nksip_lib:to_integer(Sleep0);
+        {ok, [Sleep0]} -> nklib_util:to_integer(Sleep0);
         {ok, _} -> 0
     end,
     Prov = case nksip_request:header(<<"x-nk-prov">>, Req) of
@@ -308,7 +308,7 @@ sip_options(Req, _Call) ->
             spawn(
                 fun() ->
                     nksip_request:reply(101, ReqId), 
-                    timer:sleep(nksip_lib:to_integer(Sleep0)),
+                    timer:sleep(nklib_util:to_integer(Sleep0)),
                     nksip_request:reply({ok, [contact]}, ReqId)
                 end),
             noreply; 

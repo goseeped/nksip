@@ -13,16 +13,16 @@
 
 ## Description
 
-This plugin provides a full registrar server implementation according to RFC3261. _Path_ is also supported, according to RFC3327. It uses by default the built-in, RAM-only store, but can be configured to use any other database implementing callback [sip_registrar_store/2](#sip_registrar_store2). Each started SipApp activating this plugin maintains a fully independent set of registrations.
+This plugin provides a full registrar server implementation according to RFC3261. _Path_ is also supported, according to RFC3327. It uses by default the built-in, RAM-only store, but can be configured to use any other database implementing callback [sip_registrar_store/2](#sip_registrar_store2). Each started Service activating this plugin maintains a fully independent set of registrations.
 
 Once activated, the following happens:
 * When a new _REGISTER_request arrives, you have two options:
-  * Not implementing `sip_register/2` in you SipApp callback function. In this case, the request will be processed automatically.
+  * Not implementing `sip_register/2` in you Service callback function. In this case, the request will be processed automatically.
   * Implementing your own `sip_register/`. You must inspect the request, and, in case you want it to be process, call [request/1](#request1)
-  * 
+  
 
 
-When a new _REGISTER_ request arrives at a SipApp, and if you order to `process` the request in [sip_route/6](../reference/callback_functions.md#sip_route5) callback, NkSIP will try to call [sip_register/2](../reference/callback_functions.md#sip_register2) callback if it is defined in yor SipApp's callback module. If it is not defined there, NkSIP will process the request automatically. If you implement `sip_register/3` to customize the registration process you should call [request/1](#request1) directly.
+When a new _REGISTER_ request arrives at a Service, and if you order to `process` the request in [sip_route/6](../reference/callback_functions.md#sip_route5) callback, NkSIP will try to call [sip_register/2](../reference/callback_functions.md#sip_register2) callback if it is defined in yor Service's callback module. If it is not defined there, NkSIP will process the request automatically. If you implement `sip_register/3` to customize the registration process you should call [request/1](#request1) directly.
 
 Use [find/4](#find4) or [qfind/4](qfind4) to search for a specific registration's contacts, and [is_registered/1](#is_registered1) to check if the _Request-URI_ of a specific request is registered.
 
@@ -38,13 +38,13 @@ None
 
 ## Configuration Values
 
-### SipApp configuration values
+### Service configuration values
 
 Option|Default|Description
 ---|---|---
-nksip_registrar_default_time|3600 (1h)|Default registration expiration
-nksip_registrar_min_time|60 (1m)|Minimum registration expiration
-nksip_registrar_max_time|86400 (24h)|Maximum registration expiration
+sip_registrar_default_time|3600 (1h)|Default registration expiration
+sip_registrar_min_time|60 (1m)|Minimum registration expiration
+sip_registrar_max_time|86400 (24h)|Maximum registration expiration
 
 
 ## API functions
@@ -52,11 +52,11 @@ nksip_registrar_max_time|86400 (24h)|Maximum registration expiration
 ### find/2
 
 ```erlang
-find(nksip:app_name()|nksip:app_id(), nksip:aor() | nksip:uri()) ->
+find(nksip:srv_name()|nksip:srv_id(), nksip:aor() | nksip:uri()) ->
     [nksip:uri()].
 ```
 
-Finds the registered contacts for this SipApp and _AOR_ or _Uri_, for example
+Finds the registered contacts for this Service and _AOR_ or _Uri_, for example
 ```nksip_registrar:find(my_app, "sip:user@domain")``` or 
 ```nksip_registrar:find("my_other_app", {sip, <<"user">>, <<"domain">>})```
 
@@ -64,7 +64,7 @@ Finds the registered contacts for this SipApp and _AOR_ or _Uri_, for example
 ### find/4
 
 ```erlang
-find(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+find(nksip:srv_name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     [nksip:uri()].
 ```
 
@@ -74,7 +74,7 @@ Similar to `find/2`.
 ### qfind/2
 
 ```erlang
-qfind(nksip:app_name()|nksip:app_id(), AOR::nksip:aor()) ->
+qfind(nksip:srv_name()|nksip:srv_id(), AOR::nksip:aor()) ->
     nksip:uri_set().
 ```
 
@@ -102,7 +102,7 @@ Using this example, when a new request arrives at our proxy for domain 'nksip' a
 ### qfind/4
 
 ```erlang
-qfind(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+qfind(nksip:srv_name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     nksip:uri_set().
 ```
 
@@ -112,7 +112,7 @@ Similar to `qfind/2`
 ### delete/4
 
 ```erlang
-delete(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+delete(nksip:srv_name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     ok | not_found | callback_error.
 ```
 
@@ -155,7 +155,7 @@ sip_register(Req, _Call) ->
 
 ## Callback functions
 
-You can implement any of these callback functions in your SipApp callback module.
+You can implement any of these callback functions in your Service callback module.
 
 
 
@@ -166,7 +166,7 @@ sip_registrar_store(StoreOp, AppId) ->
     [RegContact] | ok | not_found when 
         StoreOp :: {get, AOR} | {put, AOR, [RegContact], TTL} | 
                    {del, AOR} | del_all,
-        AppId :: nksip:app_id(),
+        AppId :: nksip:srv_id(),
         AOR :: nksip:aor(),
         RegContact :: nksip_registrar_lib:reg_contact(),
         TTL :: integer().
@@ -181,7 +181,7 @@ Op|Response|Comments
 {del, AOR}|ok &#124; not_found|Delete all stored contacts for this `AOR` and `AppIdp`, returning `ok` or `not_found` if the `AOR` is not found.
 del_all|ok|Delete all stored information for this `AppId`.
 
-See the [default implementation](../../plugins/src/nksip_registrar_sipapp.erl) as a basis. 
+See the [default implementation](../../plugins/src/nksip_registrar_callbacks.erl) as a basis. 
 
 ## Examples
 
@@ -193,16 +193,16 @@ See the [default implementation](../../plugins/src/nksip_registrar_sipapp.erl) a
 
 
 start() ->
-    {ok, _} = nksip:start(server, ?MODULE, [], [
-        {from, "sip:server@nksip"},
+    {ok, _} = nksip:start(server, [
+        {sip_from, "sip:server@nksip"},
+        {sip_registrar_min_time, 60},
         {plugins, [nksip_registrar]},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]},
-        {nksip_registrar_min_time, 60}
+        {transports, "sip:all:5060, sips:all:5061"}
     ]),
     {ok, _} = nksip:start(client, ?MODULE, [], [
-        {from, "sip:client@nksip"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]}
+        {sip_from, "sip:client@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5070, sips:all:5071"}
     ]).
 
 stop() ->
@@ -232,7 +232,7 @@ test1() ->
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server} ->
             Opts = [record_route, {insert, "x-nk-server", "server"}],
             case lists:member(Domain, [<<"nksip">>, <<"127.0.0.1">>]) of

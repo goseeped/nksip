@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,7 +22,7 @@
 -module(nksip_request).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
--export([get_handle/1, app_id/1, app_name/1, method/1, body/1, call_id/1]).
+-export([get_handle/1, srv_id/1, srv_name/1, method/1, body/1, call_id/1]).
 -export([meta/2, metas/2, header/2, reply/2, is_local_ruri/1]).
 
 -include("nksip.hrl").
@@ -45,25 +45,25 @@ get_handle(Term) ->
 
 
 %% @doc Gets internal app's id
--spec app_id(nksip:request()|nksip:handle()) -> 
-    {ok, nksip:app_id()}.
+-spec srv_id(nksip:request()|nksip:handle()) -> 
+    {ok, nksip:srv_id()}.
 
-app_id(#sipmsg{class={req, _}, app_id=AppId}) ->
-    {ok, AppId};
-app_id(Handle) ->
+srv_id(#sipmsg{class={req, _}, srv_id=SrvId}) ->
+    {ok, SrvId};
+srv_id(Handle) ->
     case nksip_sipmsg:parse_handle(Handle) of
-        {req, AppId, _Id, _CallId} -> {ok, AppId};
+        {req, SrvId, _Id, _CallId} -> {ok, SrvId};
         _ -> error(invalid_request)
     end.
 
 
 %% @doc Gets app's name
--spec app_name(nksip:request()|nksip:handle()) -> 
-    {ok, nksip:app_name()}.
+-spec srv_name(nksip:request()|nksip:handle()) -> 
+    {ok, nkservice:name()}.
 
-app_name(Req) -> 
-    {ok, AppId} = app_id(Req),
-    {ok, AppId:name()}.
+srv_name(Req) -> 
+    {ok, SrvId} = srv_id(Req),
+    {ok, SrvId:name()}.
 
 
 %% @doc Gets the calls's id of a request id
@@ -74,7 +74,7 @@ call_id(#sipmsg{class={req, _}, call_id=CallId}) ->
     {ok, CallId};
 call_id(Handle) ->
     case nksip_sipmsg:parse_handle(Handle) of
-        {req, _AppId, _Id, CallId} -> {ok, CallId};
+        {req, _SrvId, _Id, CallId} -> {ok, CallId};
         _ -> error(invalid_request)
     end.
 
@@ -126,7 +126,7 @@ metas(Fields, Handle) when is_list(Fields) ->
 header(Name, #sipmsg{class={req, _}}=Req) -> 
     {ok, nksip_sipmsg:header(Name, Req)};
 header(Name, Handle) when is_binary(Handle) ->
-    meta(nksip_lib:to_binary(Name), Handle).
+    meta(nklib_util:to_binary(Name), Handle).
 
 
 %% @doc Sends a reply to a request. Must get the request's id before, and
@@ -135,14 +135,14 @@ header(Name, Handle) when is_binary(Handle) ->
     ok | {error, term()}.
 
 reply(SipReply, Handle) ->
-    {req, AppId, ReqId, CallId} = nksip_sipmsg:parse_handle(Handle),
-    nksip_call:send_reply(AppId, CallId, ReqId, SipReply).
+    {req, SrvId, ReqId, CallId} = nksip_sipmsg:parse_handle(Handle),
+    nksip_call:send_reply(SrvId, CallId, ReqId, SipReply).
 
 
 %% @doc Checks if this R-URI of this request points to a local address
 -spec is_local_ruri(nksip:request()) -> 
     boolean().
 
-is_local_ruri(#sipmsg{class={req, _}, app_id=AppId, ruri=RUri}) ->
-    nksip_transport:is_local(AppId, RUri).
+is_local_ruri(#sipmsg{class={req, _}, srv_id=SrvId, ruri=RUri}) ->
+    nksip_util:is_local(SrvId, RUri).
 

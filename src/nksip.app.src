@@ -1,6 +1,6 @@
 {application, nksip, [
     {description, "NkSIP Framework"},
-    {vsn, "0.4.0"},
+    {vsn, "master"},
     {modules, []},
     {registered, []},
     {mod, {nksip_app, []}},
@@ -11,9 +11,8 @@
         sasl,
         ssl,
         lager,
-        ranch,
-        cowlib,
-        cowboy
+        nkpacket,
+        nkservice
     ]},
     {env, [
     ]}

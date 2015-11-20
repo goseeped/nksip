@@ -1,6 +1,7 @@
 PROJECT = nksip
 DIALYZER = dialyzer
 REBAR = ./rebar
+#RELOADER = -s nkreloader
 
 all: app
 
@@ -9,6 +10,9 @@ deps:
 
 app: deps
 	@$(REBAR) compile
+
+cnodeps:
+	./rebar compile skip_deps=true
 
 clean: clean-docs clean-logs
 	@$(REBAR) clean
@@ -49,9 +53,9 @@ dialyze: app
 	-Werror_handling  #-Wunmatched_returns -Wrace_conditions -Wunderspecs
 
 shell: 
-	erl -config priv/app.config -args_file priv/vm.args
+	erl -config priv/app.config -args_file priv/vm.args $(RELOADER)
 
-tutorial: 
+tutorial: app
 	erl -config samples/nksip_tutorial/priv/app.config \
 		-args_file samples/nksip_tutorial/priv/vm.args 
 
@@ -61,10 +65,11 @@ loadtest: app
 
 pbx: app
 	erl -config samples/nksip_pbx/priv/app.config \
-		-args_file samples/nksip_pbx/priv/vm.args -s nksip_pbx
+		-args_file samples/nksip_pbx/priv/vm.args
 
 build_tests:
-	erlc -pa ebin -pa deps/lager/ebin -o ebin -I include \
+	erlc -pa ebin -pa deps/lager/ebin -pa deps/nklib/ebin -pa deps/nkpacket/ebin \
+	-o ebin -I include \
 	+export_all +debug_info +"{parse_transform, lager_transform}" \
 	test/*.erl
 

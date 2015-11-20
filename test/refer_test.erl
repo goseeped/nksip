@@ -41,24 +41,24 @@ refer_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {transports, [{udp, all, 5060}]},
-        {event_expires_offset, 0},
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_event_expires_offset, 0},
+        {transports, "sip:all:5060"},
         {plugins, [nksip_refer]}
     ]),
     
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]},
-        {event_expires_offset, 0},
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_event_expires_offset, 0},
+        {transports, ["<sip:all:5070>", "<sip:all:5071;transport=tls>"]},
         {plugins, [nksip_refer]}
     ]),
 
-    {ok, _} = nksip:start(client3, ?MODULE, [], [
-        {from, "sip:client2@nksip"},
-        no_100,
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5080}, {tls, all, 5081}]},
-        {event_expires_offset, 0},
+    ok = tests_util:start(client3, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "127.0.0.1"},
+        {sip_event_expires_offset, 0},
+        {transports, "<sip:all:5080>,<sip:all:5081;transport=tls>"},
         {plugins, [nksip_refer]}
     ]),
 
@@ -82,8 +82,8 @@ basic() ->
 
     {ok, Dialog1A} = nksip_dialog:get_handle(Subs1A),
     % Prepare to send us the received NOTIFYs
-    {ok, Dialogs} = nksip:get(client1, dialogs, []),
-    ok = nksip:put(client1, dialogs, [{Dialog1A, Ref, Self}|Dialogs]),
+    Dialogs = nkservice_server:get(client1, dialogs, []),
+    ok = nkservice_server:put(client1, dialogs, [{Dialog1A, Ref, Self}|Dialogs]),
 
     % client2 has sent the INVITE to client3, and it has replied 180
     ok = tests_util:wait(Ref, [
@@ -151,8 +151,8 @@ in_dialog() ->
     {ok, 200, [{subscription, Subs1}]} = 
         nksip_uac:refer(Dialog1A, [{refer_to, "sips:127.0.0.1:5081"}]),
 
-    {ok, Dialogs} = nksip:get(client1, dialogs, []),
-    ok = nksip:put(client1, dialogs, [{Dialog1A, Ref, Self}|Dialogs]),
+    Dialogs = nkservice_server:get(client1, dialogs, []),
+    ok = nkservice_server:put(client1, dialogs, [{Dialog1A, Ref, Self}|Dialogs]),
 
     % client2 has sent the INVITE to client3, and it has replied 180
     ok = tests_util:wait(Ref, [
@@ -198,11 +198,11 @@ sip_refer(_ReferTo, _Req, _Call) ->
 
 sip_refer_update(SubsHandle, Status, Call) ->
     {ok, DialogId} = nksip_dialog:get_handle(SubsHandle),
-    AppId = nksip_call:app_id(Call),
-    {ok, Dialogs} = nksip:get(AppId, dialogs, []),
+    SrvId = nksip_call:srv_id(Call),
+    Dialogs = nkservice_server:get(SrvId, dialogs, []),
     case lists:keyfind(DialogId, 1, Dialogs) of
         {DialogId, Ref, Pid}=_D -> 
-            Pid ! {Ref, {AppId:name(), SubsHandle, Status}};
+            Pid ! {Ref, {SrvId:name(), SubsHandle, Status}};
         false ->
             ok
     end.

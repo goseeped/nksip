@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -60,7 +60,7 @@
     integer().
 
 uac_transaction_id(#sipmsg{cseq={_, Method}, vias=[Via|_]}) ->
-    Branch = nksip_lib:get_value(<<"branch">>, Via#via.opts),
+    Branch = nklib_util:get_value(<<"branch">>, Via#via.opts),
     erlang:phash2({Method, Branch}).
 
 
@@ -78,7 +78,7 @@ uas_transaction_id(Req) ->
             cseq = {CSeq, _}
         } = Req,
     {_Transp, ViaIp, ViaPort} = nksip_parse:transport(Via),
-    case nksip_lib:get_value(<<"branch">>, Via#via.opts) of
+    case nklib_util:get_value(<<"branch">>, Via#via.opts) of
         <<"z9hG4bK", Branch/binary>> when byte_size(Branch) > 0 ->
             erlang:phash2({Method, ViaIp, ViaPort, Branch});
         _ ->
@@ -151,14 +151,15 @@ update_auth(<<>>, _SipMsg, Call) ->
 
 update_auth(DialogId, SipMsg, #call{auths=Auths}=Call) ->
     case SipMsg of
-        #sipmsg{transport=#transport{proto=Proto, remote_ip=Ip, remote_port=Port}} ->
-            case lists:member({DialogId, Proto, Ip, Port}, Auths) of
+        #sipmsg{nkport=NkPort} ->
+            {ok, {_, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
+            case lists:member({DialogId, Transp, Ip, Port}, Auths) of
                 true ->
                     Call;
                 false -> 
-                    ?call_debug("Added cached auth for dialog ~s (~p:~p:~p)", 
-                                [DialogId, Proto, Ip, Port]),
-                    Call#call{auths=[{DialogId, Proto, Ip, Port}|Auths]}
+                    ?call_debug("added cached auth for dialog ~s (~p:~p:~p)", 
+                                [DialogId, Transp, Ip, Port]),
+                    Call#call{auths=[{DialogId, Transp, Ip, Port}|Auths]}
             end;
         _ ->
             Call
@@ -172,19 +173,19 @@ update_auth(DialogId, SipMsg, #call{auths=Auths}=Call) ->
 check_auth(#sipmsg{dialog_id = <<>>}, _Call) ->
     false;
 
-check_auth(#sipmsg{dialog_id=DialogId, transport=#transport{}=Transp}, Call) ->
-    #transport{proto=Proto, remote_ip=Ip, remote_port=Port} = Transp,
+check_auth(#sipmsg{dialog_id=DialogId, nkport=NkPort}, Call) when is_tuple(NkPort)->
+    {ok, {_, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
     #call{auths=Auths} = Call,
-    case lists:member({DialogId, Proto, Ip, Port}, Auths) of
+    case lists:member({DialogId, Transp, Ip, Port}, Auths) of
         true ->
             ?call_debug("Origin ~p:~p:~p is in dialog ~s authorized list", 
-                        [Proto, Ip, Port, DialogId]),
+                        [Transp, Ip, Port, DialogId]),
             true;
         false ->
             AuthList = [{O, I, P} || {D, O, I, P}<-Auths, D==DialogId],
             ?call_debug("Origin ~p:~p:~p is NOT in dialog ~s "
                         "authorized list (~p)", 
-                        [Proto, Ip, Port, DialogId, AuthList]),
+                        [Transp, Ip, Port, DialogId, AuthList]),
             false
     end;
 
@@ -316,7 +317,7 @@ cancel_timer(undefined) ->
     ok;
 
 cancel_timer({_Tag, Ref}) when is_reference(Ref) -> 
-    nksip_lib:cancel_timer(Ref),
+    nklib_util:cancel_timer(Ref),
     ok.
 
 

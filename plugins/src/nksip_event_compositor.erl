@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,17 +21,18 @@
 %% @doc NkSIP Event State Compositor Plugin
 %%
 %% This module implements a Event State Compositor, according to RFC3903
-%% By default, it uses the RAM-only built-in store, but any SipApp can implement 
+%% By default, it uses the RAM-only built-in store, but any Service can implement 
 %% sip_event_compositor_store/3 callback to use any external database.
 
 -module(nksip_event_compositor).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
+-include_lib("nklib/include/nklib.hrl").
 -include("../include/nksip.hrl").
 -include("nksip_event_compositor.hrl").
 
 -export([find/3, request/1, clear/1]).
--export([version/0, deps/0, parse_config/1, terminate/2]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 -export_type([reg_publish/0]).
 
 
@@ -51,49 +52,49 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
-
-parse_config(Opts) ->
-    Defaults = [{nksip_event_compositor_default_expires, 60}],
-    Opts1 = nksip_lib:defaults(Opts, Defaults),
-    Allow = nksip_lib:get_value(allow, Opts1),
-    Opts2 = case lists:member(<<"PUBLISH">>, Allow) of
-        true -> 
-            Opts1;
-        false -> 
-            nksip_lib:store_value(allow, Allow++[<<"PUBLISH">>], Opts1)
-    end,
-    case nksip_lib:get_value(nksip_event_compositor_default_expires, Opts2) of
-        Secs when is_integer(Secs), Secs>=1 ->
-            {ok, Opts2};
-        _ ->
-            {error, {invalid_config, nksip_event_compositor_default_expires}}
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    case nkservice_util:parse_syntax(SrvSpec, syntax(), defaults()) of
+        {ok, SrvSpec1} ->
+            UpdFun = fun(Allow) -> nklib_util:store_value(<<"PUBLISH">>, Allow) end,
+            SrvSpec2 = nksip:plugin_update_value(sip_allow, UpdFun, SrvSpec1),
+            #{cache:=OldCache} = SrvSpec2,
+            Cache = maps:with(maps:keys(syntax()), SrvSpec1),
+            lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+            {ok, SrvSpec2#{cache:=maps:merge(OldCache, Cache)}};
+        {error, Error} ->
+            {stop, Error}
     end.
 
 
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    UpdFun = fun(Allow) -> Allow -- [<<"PRACK">>] end,
+    SrvSpec1 = nksip:plugin_update_value(sip_allow, UpdFun, SrvSpec),
+    SrvSpec2 = maps:without(maps:keys(syntax()), SrvSpec1),
+    clear(SrvId),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
-%% @doc Called when the plugin is shutdown
--spec terminate(nksip:app_id(), nksip_sipapp_srv:state()) ->
-    {ok, nksip_sipapp_srv:state()}.
 
-terminate(AppId, SipAppState) ->  
-    clear(AppId),
-    {ok, SipAppState}.
+syntax() ->
+    #{
+        sip_event_compositor_default_expires => {integer, 1, none}
+    }.
 
-
+defaults() ->
+    #{
+        sip_event_compositor_default_expires => 60
+    }.
 
 
 %% ===================================================================
@@ -101,12 +102,12 @@ terminate(AppId, SipAppState) ->
 %% ===================================================================
 
 %% @doc Finds a stored published information
--spec find(nksip:app_id()|term(), nksip:aor(), binary()) ->
+-spec find(nksip:srv_id()|term(), nksip:aor(), binary()) ->
     {ok, #reg_publish{}} | not_found | {error, term()}.
 
-find(App, AOR, Tag) ->
-    {ok, AppId} = nksip:find_app_id(App),
-    nksip_event_compositor_lib:store_get(AppId, AOR, Tag).
+find(Srv, AOR, Tag) ->
+    {ok, SrvId} = nkservice_server:get_srv_id(Srv),
+    nksip_event_compositor_lib:store_get(SrvId, AOR, Tag).
 
 
 %% @doc Processes a PUBLISH request according to RFC3903
@@ -114,32 +115,32 @@ find(App, AOR, Tag) ->
     nksip:sipreply().
 
 request(#sipmsg{class={req, 'PUBLISH'}}=Req) ->
-    #sipmsg{app_id=AppId, ruri=RUri, expires=Expires, body=Body} = Req,
+    #sipmsg{srv_id=SrvId, ruri=RUri, expires=Expires, body=Body} = Req,
     Expires1 = case is_integer(Expires) andalso Expires>0 of
         true -> 
             Expires;
         _ -> 
-            nksip_sipapp_srv:config(AppId, nksip_event_compositor_default_expires)
+            SrvId:cache_sip_event_compositor_default_expires()
     end,
     AOR = {RUri#uri.scheme, RUri#uri.user, RUri#uri.domain},
     case nksip_sipmsg:header(<<"sip-if-match">>, Req) of
         [] when Body == <<>> ->
             {invalid_request, <<"No Body">>};
         [] ->
-            Tag = nksip_lib:uid(),
-            nksip_event_compositor_lib:store_put(AppId, AOR, Tag, Expires1, Body);
+            Tag = nklib_util:uid(),
+            nksip_event_compositor_lib:store_put(SrvId, AOR, Tag, Expires1, Body);
         [Tag] ->
-            case find(AppId, AOR, Tag) of
+            case find(SrvId, AOR, Tag) of
                 {ok, _Reg} when Expires==0 -> 
-                    nksip_event_compositor_lib:store_del(AppId, AOR, Tag);
+                    nksip_event_compositor_lib:store_del(SrvId, AOR, Tag);
                 {ok, Reg} when Body == <<>> -> 
-                    nksip_event_compositor_lib:store_put(AppId, AOR, Tag, Expires1, Reg);
+                    nksip_event_compositor_lib:store_put(SrvId, AOR, Tag, Expires1, Reg);
                 {ok, _} -> 
-                    nksip_event_compositor_lib:store_put(AppId, AOR, Tag, Expires1, Body);
+                    nksip_event_compositor_lib:store_put(SrvId, AOR, Tag, Expires1, Body);
                 not_found ->    
                     conditional_request_failed;
                 {error, Error} ->
-                    ?warning(AppId, <<>>, "Error calling callback: ~p", [Error]),
+                    ?warning(SrvId, <<>>, "Error calling callback: ~p", [Error]),
                     {internal_error, <<"Callback Invalid Response">>}
             end;
         _ ->
@@ -147,19 +148,19 @@ request(#sipmsg{class={req, 'PUBLISH'}}=Req) ->
     end.
 
 
-%% @doc Clear all stored records by a SipApp's core.
--spec clear(nksip:app_name()|nksip:app_id()) -> 
-    ok | callback_error | sipapp_not_found.
+%% @doc Clear all stored records by a Service's core.
+-spec clear(nkservice:name()|nksip:srv_id()) -> 
+    ok | callback_error | service_not_found.
 
-clear(App) -> 
-    case nksip:find_app_id(App) of
-        {ok, AppId} ->
-            case nksip_event_compositor_lib:store_del_all(AppId) of
+clear(Srv) -> 
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} ->
+            case nksip_event_compositor_lib:store_del_all(SrvId) of
                 ok -> ok;
                 _ -> callback_error
             end;
         _ ->
-            sipapp_not_found
+            service_not_found
     end.
 
 

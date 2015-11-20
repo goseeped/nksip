@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -24,43 +24,43 @@
 
 -include("../include/nksip.hrl").
 
--export([nkcb_connection_sent/2, nkcb_connection_recv/4, nkcb_debug/3]).
+-export([nks_sip_connection_sent/2, nks_sip_connection_recv/4, nks_sip_debug/3]).
 
 
 %%%%%%%%%%%%%%%% Implemented core plugin callbacks %%%%%%%%%%%%%%%%%%%%%%%%%
 
 
 %% @doc Called when a new message has been sent
--spec nkcb_connection_sent(nksip:request()|nksip:response(), binary()) ->
+-spec nks_sip_connection_sent(nksip:request()|nksip:response(), binary()) ->
     continue.
 
-nkcb_connection_sent(SipMsg, Packet) ->
-    #sipmsg{app_id=_AppId, class=Class, call_id=_CallId, transport=Transp} = SipMsg,
-    #transport{proto=Proto, remote_ip=Ip, remote_port=Port} = Transp,
+nks_sip_connection_sent(SipMsg, Packet) ->
+    #sipmsg{srv_id=_SrvId, class=Class, call_id=_CallId, nkport=NkPort} = SipMsg,
+    {ok, {_Proto, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
     case Class of
         {req, Method} ->
-            nksip_debug:insert(SipMsg, {Proto, Ip, Port, Method, Packet});
+            nksip_debug:insert(SipMsg, {Transp, Ip, Port, Method, Packet});
         {resp, Code, _Reason} ->
-            nksip_debug:insert(SipMsg, {Proto, Ip, Port, Code, Packet})
+            nksip_debug:insert(SipMsg, {Transp, Ip, Port, Code, Packet})
     end,
     continue.
 
 
 %% @doc Called when a new message has been received and parsed
--spec nkcb_connection_recv(nksip:app_id(), nksip:call_id(), 
-                           nksip:transport(), binary()) ->
+-spec nks_sip_connection_recv(nksip:srv_id(), nksip:call_id(), 
+                           nkpacket:nkport(), binary()) ->
     continue.
 
-nkcb_connection_recv(AppId, CallId, Transp, Packet) ->
-    #transport{proto=Proto, remote_ip=Ip, remote_port=Port} = Transp,
-    nksip_debug:insert(AppId, CallId, {Proto, Ip, Port, Packet}),
+nks_sip_connection_recv(SrvId, CallId, NkPort, Packet) ->
+    {ok, {_Proto, Transp, Ip, Port}} = nkpacket:get_remote(NkPort),
+    nksip_debug:insert(SrvId, CallId, {Transp, Ip, Port, Packet}),
     continue.
 
 
 %% doc Called at specific debug points
--spec nkcb_debug(nksip:app_id(), nksip:call_id(), term()) ->
+-spec nks_sip_debug(nksip:srv_id(), nksip:call_id(), term()) ->
     continue.
 
-nkcb_debug(AppId, CallId, Info) ->
-    nksip_debug:insert(AppId, CallId, Info),
+nks_sip_debug(SrvId, CallId, Info) ->
+    nksip_debug:insert(SrvId, CallId, Info),
     continue.

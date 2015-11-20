@@ -42,38 +42,38 @@ auth_test_() ->
 
 start() ->
     tests_util:start_nksip(),
-    {ok, _} = nksip:start(server1, ?MODULE, [], [
-        {from, "sip:server1@nksip"},
+    ok = tests_util:start(server1, ?MODULE, [
+        {sip_from, "sip:server1@nksip"},
+        {sip_local_host, "localhost"},
         {plugins, [nksip_registrar]},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}]}
+        {transports, "sip:all:5060"}
     ]),
 
-    {ok, _} = nksip:start(server2, ?MODULE, [], [
-        {from, "sip:server2@nksip"},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5061}]}
+    ok = tests_util:start(server2, ?MODULE, [
+        {sip_from, "sip:server2@nksip"},
+        {sip_local_host, "localhost"},
+        {transports, "sip:all:5061"}
     ]),
 
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "sip:client1@nksip"},
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "sip:client1@nksip"},
+        {sip_local_host, "127.0.0.1"},
         {plugins, [nksip_uac_auto_auth]},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}]}
+        {transports, "sip:all:5070"}
     ]),
     
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "sip:client2@nksip"},
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {sip_pass, ["jj", {"client1", "4321"}]},
+        {sip_local_host, "127.0.0.1"},
         {plugins, [nksip_uac_auto_auth]},
-        {passes, ["jj", {"client1", "4321"}]},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5071}]}
+        {transports, "sip:all:5071"}
     ]),
 
-    {ok, _} = nksip:start(client3, ?MODULE, [], [
-        {from, "sip:client3@nksip"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5072}]}
+    ok = tests_util:start(client3, ?MODULE, [
+        {sip_from, "sip:client3@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5072"}
     ]),
     
     tests_util:log(),
@@ -93,23 +93,23 @@ digest() ->
     SipC2 = "sip:127.0.0.1:5071",
 
     {ok, 401, []} = nksip_uac:options(client1, SipC2, []),
-    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{pass, "1234"}]),
-    {ok, 403, []} = nksip_uac:options(client1, SipC2, [{pass, "12345"}]),
-    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{pass, {"client2", "1234"}}]),
-    {ok, 403, []} = nksip_uac:options(client1, SipC2, [{pass, {"other", "1234"}}]),
+    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{sip_pass, "1234"}]),
+    {ok, 403, []} = nksip_uac:options(client1, SipC2, [{sip_pass, "12345"}]),
+    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{sip_pass, {"client2", "1234"}}]),
+    {ok, 403, []} = nksip_uac:options(client1, SipC2, [{sip_pass, {"other", "1234"}}]),
 
     HA1 = nksip_auth:make_ha1("client1", "1234", "client2"),
-    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{pass, HA1}]),
+    {ok, 200, []} = nksip_uac:options(client1, SipC2, [{sip_pass, HA1}]),
     
-    % Pass is invalid, but there is a valid one in SipApp's options
+    % Pass is invalid, but there is a valid one in Service's options
     {ok, 200, []} = nksip_uac:options(client2, Sipclient1, []),
-    {ok, 200, []} = nksip_uac:options(client2, Sipclient1, [{pass, "kk"}]),
-    {ok, 403, []} = nksip_uac:options(client2, Sipclient1, [{pass, {"client1", "kk"}}]),
+    {ok, 200, []} = nksip_uac:options(client2, Sipclient1, [{sip_pass, "kk"}]),
+    {ok, 403, []} = nksip_uac:options(client2, Sipclient1, [{sip_pass, {"client1", "kk"}}]),
 
     Self = self(),
     Ref = make_ref(),
     Fun = fun({resp, 200, _, _}) -> Self ! {Ref, digest_ok} end,
-    {async, _} = nksip_uac:options(client1, SipC2, [async, {callback, Fun}, {pass, HA1}]),
+    {async, _} = nksip_uac:options(client1, SipC2, [async, {callback, Fun}, {sip_pass, HA1}]),
     ok = tests_util:wait(Ref, [digest_ok]),
     ok.
 
@@ -124,15 +124,15 @@ invite() ->
     {ok, 401, [{cseq_num, CSeq}]} = 
         nksip_uac:invite(client1, SipC3, [{meta, [cseq_num]}]),
     {ok, 200, [{dialog, DialogId1}]} = nksip_uac:invite(client1, SipC3, 
-                                             [{pass, "abcd"}, RepHd]),
+                                             [{sip_pass, "abcd"}, RepHd]),
     ok = nksip_uac:ack(DialogId1, []),
     ok = tests_util:wait(Ref, [{client3, ack}]),
     {ok, 401, []} = nksip_uac:options(DialogId1, []),
-    {ok, 200, []} = nksip_uac:options(DialogId1, [{pass, "abcd"}]),
+    {ok, 200, []} = nksip_uac:options(DialogId1, [{sip_pass, "abcd"}]),
 
     {ok, 401, _} = nksip_uac:invite(DialogId1, []),
 
-    {ok, 200, _} = nksip_uac:invite(DialogId1, [{pass, "abcd"}]),
+    {ok, 200, _} = nksip_uac:invite(DialogId1, [{sip_pass, "abcd"}]),
     
     FunAck = fun({req, ACK3, _Call}) ->
         {ok, AckCSeq} = nksip_request:meta(cseq_num, ACK3),
@@ -160,7 +160,7 @@ dialog() ->
     {Ref, RepHd} = tests_util:get_ref(),
 
     {ok, 200, [{dialog, DialogId1}]} = nksip_uac:invite(client1, SipC2, 
-                                            [{pass, "1234"}, RepHd]),
+                                            [{sip_pass, "1234"}, RepHd]),
     ok = nksip_uac:ack(DialogId1, []),
     ok = tests_util:wait(Ref, [{client2, ack}]),
 
@@ -173,16 +173,16 @@ dialog() ->
 
     ok = nksip_dialog:clear_authorized_list(DialogId2),
     {ok, 401, []} = nksip_uac:options(DialogId1, []),
-    {ok, 200, []} = nksip_uac:options(DialogId1, [{pass, "1234"}]),
+    {ok, 200, []} = nksip_uac:options(DialogId1, [{sip_pass, "1234"}]),
     {ok, 200, []} = nksip_uac:options(DialogId1, []),
 
     ok = nksip_dialog:clear_authorized_list(DialogId1),
     [] = nksip_dialog:get_authorized_list(DialogId1),
 
-    % Force an invalid password, because the SipApp config has a valid one
-    {ok, 403, []} = nksip_uac:options(DialogId2, [{pass, {"client1", "invalid"}}]),
+    % Force an invalid password, because the Service config has a valid one
+    {ok, 403, []} = nksip_uac:options(DialogId2, [{sip_pass, {"client1", "invalid"}}]),
     {ok, 200, []} = nksip_uac:options(DialogId2, []),
-    {ok, 200, []} = nksip_uac:options(DialogId2, [{pass, {"client1", "invalid"}}]),
+    {ok, 200, []} = nksip_uac:options(DialogId2, [{sip_pass, {"client1", "invalid"}}]),
 
     {ok, 200, []} = nksip_uac:bye(DialogId1, []),
     ok = tests_util:wait(Ref, [{client2, bye}]),
@@ -194,21 +194,21 @@ proxy() ->
     {Ref, RepHd} = tests_util:get_ref(),
 
     {ok, 407, []} = nksip_uac:register(client1, S1, []),
-    {ok, 200, []} = nksip_uac:register(client1, S1, [{pass, "1234"}, unregister_all]),
+    {ok, 200, []} = nksip_uac:register(client1, S1, [{sip_pass, "1234"}, unregister_all]),
     
-    {ok, 200, []} = nksip_uac:register(client2, S1, [{pass, "4321"}, unregister_all]),
+    {ok, 200, []} = nksip_uac:register(client2, S1, [{sip_pass, "4321"}, unregister_all]),
     
     % Users are not registered and no digest
     {ok, 407, []} = nksip_uac:options(client1, S1, []),
-    % client2's SipApp has a password, but it is invalid
+    % client2's Service has a password, but it is invalid
     {ok, 403, []} = nksip_uac:options(client2, S1, []),
 
     % We don't want the registrar to store outbound info, so that no 
     % Route header will be added to lookups (we are doing a special routing)
     {ok, 200, []} = nksip_uac:register(client1, S1, 
-                                       [{pass, "1234"}, contact, {supported, ""}]),
+                                       [{sip_pass, "1234"}, contact, {supported, ""}]),
     {ok, 200, []} = nksip_uac:register(client2, S1, 
-                                       [{pass, "4321"}, contact, {supported, ""}]),
+                                       [{sip_pass, "4321"}, contact, {supported, ""}]),
 
     % Authorized because of previous registration
     {ok, 200, []} = nksip_uac:options(client1, S1, []),
@@ -221,10 +221,10 @@ proxy() ->
         nksip_uac:invite(client1, "sip:client2@nksip", [Route, {meta, [realms]}]),
 
     % Now the request reaches client2, and it is not authorized there. 
-    % client2 replies with 401, but we generate a new request with the SipApp's invalid
+    % client2 replies with 401, but we generate a new request with the Service's invalid
     % password
     {ok, 403, _} = nksip_uac:invite(client1, "sip:client2@nksip", 
-                                      [Route, {pass, {"server2", "1234"}}, 
+                                      [Route, {sip_pass, {"server2", "1234"}}, 
                                        RepHd]),
 
     % Server1 accepts because of previous registration
@@ -234,8 +234,8 @@ proxy() ->
     % Server2 and client2 accepts their digests
     {ok, 200, [{dialog, DialogId1}]} = nksip_uac:invite(client1, "sip:client2@nksip", 
                                             [Route, 
-                                            {passes, [{"server2", "1234"}, 
-                                                      {"client2", "1234"}]},
+                                            {sip_pass, [{"server2", "1234"}, 
+                                                       {"client2", "1234"}]},
                                             % {supported, ""},    % No outbound
                                             RepHd]),
     % Server2 inserts a Record-Route, so every in-dialog request is sent to Server2
@@ -257,7 +257,7 @@ proxy() ->
 
 
 sip_get_user_pass(User, Realm, Req, _Call) ->
-    {ok, App} = nksip_request:app_name(Req),
+    {ok, App} = nksip_request:srv_name(Req),
     if
         App==server1; App==server2 ->
             % Password for user "client1", any realm, is "1234"
@@ -286,7 +286,7 @@ sip_get_user_pass(User, Realm, Req, _Call) ->
 
 % Authorization is only used for "auth" suite
 sip_authorize(Auth, Req, _Call) ->
-    {ok, App} = nksip_request:app_name(Req),
+    {ok, App} = nksip_request:srv_name(Req),
     IsDialog = lists:member(dialog, Auth),
     IsRegister = lists:member(register, Auth),
     if
@@ -296,8 +296,8 @@ sip_authorize(Auth, Req, _Call) ->
                 true ->
                     ok;
                 false ->
-                    BinId = nksip_lib:to_binary(App) ,
-                    case nksip_lib:get_value({digest, BinId}, Auth) of
+                    BinId = nklib_util:to_binary(App) ,
+                    case nklib_util:get_value({digest, BinId}, Auth) of
                         true -> ok;
                         false -> forbidden;
                         undefined -> {proxy_authenticate, BinId}
@@ -307,8 +307,8 @@ sip_authorize(Auth, Req, _Call) ->
             % client3 doesn't support dialog authorization
             ok;
         true ->
-            BinId = nksip_lib:to_binary(App) ,
-            case nksip_lib:get_value({digest, BinId}, Auth) of
+            BinId = nklib_util:to_binary(App) ,
+            case nklib_util:get_value({digest, BinId}, Auth) of
                 true -> ok;                         % At least one user is authenticated
                 false -> forbidden;                 % Failed authentication
                 undefined -> {authenticate, BinId}  % No auth header
@@ -321,7 +321,7 @@ sip_authorize(Auth, Req, _Call) ->
 % Route for server1 in auth tests
 % Finds the user and proxies to server2
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             Opts = [{route, "<sip:127.0.0.1:5061;lr>"}],
             case User of

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -24,7 +24,7 @@
 
 -include("../include/nksip.hrl").
 
--export([version/0, deps/0, parse_config/1]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 
 
 %% ===================================================================
@@ -36,28 +36,29 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    UpdFun = fun(Supported) -> nklib_util:store_value(<<"outbound">>, Supported) end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun, SrvSpec),
+    lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
-parse_config(Opts) ->
-    Supported = nksip_lib:get_value(supported, Opts),
-    Opts1 = case lists:member(<<"outbound">>, Supported) of
-        true -> Opts;
-        false -> nksip_lib:store_value(supported, Supported++[<<"outbound">>], Opts)
-    end,
-    {ok, Opts1}.
+
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    UpdFun = fun(Supported) -> Supported -- [<<"outbound">>] end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun, SrvSpec),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
 
 

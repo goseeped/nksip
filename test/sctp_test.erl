@@ -23,6 +23,7 @@
 -module(sctp_test).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 -include("../include/nksip.hrl").
 
 -compile([export_all]).
@@ -50,17 +51,17 @@ sctp_test_() ->
 
 start() ->
     tests_util:start_nksip(),
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "sip:client1@nksip"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}, {sctp, all, 5070}]}
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "sip:client1@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5070, <sip:all:5070;transport=sctp>"}
     ]),
 
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "sip:client2@nksip"},
-        {passes, ["jj", {"4321", "client1"}]},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5071}, {sctp, all, 5071}]}
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {sip_pass, ["jj", {"4321", "client1"}]},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5071, <sip:all:5071;transport=sctp>"}
     ]),
 
     tests_util:log(),
@@ -78,17 +79,17 @@ basic() ->
     Ref = make_ref(),
 
     Fun = fun
-        ({req, #sipmsg{vias=[#via{proto=sctp}], transport=ReqTransp}, _Call}) ->
-            #transport{
-                proto = sctp,
+        ({req, #sipmsg{vias=[#via{transp=sctp}], nkport=ReqNkPort}, _Call}) ->
+            #nkport{
+                transp = sctp,
                 local_port = FLocalPort,
                 remote_ip = {127,0,0,1},
                 remote_port = 5071,
                 listen_port = 5070,
-                sctp_id = FSctpId
-            } = ReqTransp,
+                socket = {_, FSctpId}
+            } = ReqNkPort,
             Self ! {Ref, {cb1, FLocalPort, FSctpId}};
-        ({resp, 200, #sipmsg{vias=[#via{proto=sctp}]}, _Call}) ->
+        ({resp, 200, #sipmsg{vias=[#via{transp=sctp}]}, _Call}) ->
             Self ! {Ref, cb2}
     end,
     {async, _} = nksip_uac:options(client1, SipC2, [async, {callback, Fun}, get_request]),
@@ -96,19 +97,19 @@ basic() ->
     _ = ?RECV({Ref, cb2}),
 
     % client1 should have started a new transport to client2:5071
-    {ok, C1} = nksip:find_app_id(client1),
-    [LocPid] = [Pid || {#transport{proto=sctp, local_port=LP, remote_port=5071,
-                                   sctp_id=Id}, Pid} 
+    {ok, C1} = nkservice_server:get_srv_id(client1),
+    [LocPid] = [Pid || {#nkport{transp=sctp, local_port=LP, remote_port=5071,
+                                   socket={_, Id}}, Pid} 
                         <- nksip_transport:get_all(C1), LP=:=LocalPort, Id=:=SctpId],
 
     % client2 should not have started a new transport also to client1:5070
-    {ok, C2} = nksip:find_app_id(client2),
-    [RemPid] = [Pid || {#transport{proto=sctp, remote_port=5070}, Pid} 
+    {ok, C2} = nkservice_server:get_srv_id(client2),
+    [RemPid] = [Pid || {#nkport{transp=sctp, remote_port=5070}, Pid} 
                        <- nksip_transport:get_all(C2)],
 
     % client1 should have started a new connection. client2 too.
-    [{_, LocPid}] = nksip_transport:get_connected(C1, sctp, {127,0,0,1}, 5071, <<>>),
-    [{_, RemPid}] = nksip_transport:get_connected(C2, sctp, {127,0,0,1}, LocalPort, <<>>),
+    [LocPid] = nksip_util:get_connected(C1, sctp, {127,0,0,1}, 5071, <<>>),
+    [RemPid] = nksip_util:get_connected(C2, sctp, {127,0,0,1}, LocalPort, <<>>),
     ok.
 
 

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -43,7 +43,7 @@
     {cancel, nksip_sipmsg:id()} |
     {send_reply, nksip_sipmsg:id(), nksip:sipreply()} |
     {incoming, #sipmsg{}} | 
-    {incoming, nksip:app_id(), nksip:call_id(), nksip:transport(), binary()} | 
+    {incoming, nksip:srv_id(), nksip:call_id(), nkpacket:nkport(), binary()} | 
     info |
     get_all_dialogs | 
     {stop_dialog, nksip_dialog_lib:id()} |
@@ -62,16 +62,16 @@
 
 
 %% @private
--spec work(work(), from()|none, nksip_call:call()) ->
+-spec work(work(), {pid(), term()}|none, nksip_call:call()) ->
     nksip_call:call().
 
 work({send, Req, Opts}, From, Call) ->
     nksip_call_uac:request(Req, Opts, {srv, From}, Call);
 
 work({send, Method, Uri, Opts}, From, Call) ->
-    #call{app_id=AppId, call_id=CallId} = Call,
+    #call{srv_id=SrvId, call_id=CallId} = Call,
     Opts1 = [{call_id, CallId} | Opts],
-    case nksip_call_uac_make:make(AppId, Method, Uri, Opts1) of
+    case nksip_call_uac_make:make(SrvId, Method, Uri, Opts1) of
         {ok, Req, ReqOpts} -> 
             work({send, Req, ReqOpts}, From, Call);
         {error, Error} ->
@@ -93,8 +93,6 @@ work({send_cancel, ReqId, Opts}, From, Call) ->
         true -> ok;
         false -> error(cancel1)
     end,
-
-
     case get_trans_id(ReqId, Call) of
         {ok, TransId} ->
             nksip_call_uac:cancel(TransId, Opts, {srv, From}, Call);
@@ -125,24 +123,24 @@ work({incoming, #sipmsg{class={resp, _, _}}=Resp}, none, Call) ->
             nksip_call_uac:response(Resp, Call)
     end;
 
-work({incoming, AppId, CallId, Transp, Msg}, none, Call) ->
-    case nksip_parse:packet(AppId, CallId, Transp, Msg) of
+work({incoming, SrvId, CallId, NkPort, Msg}, none, Call) ->
+    case nksip_parse:packet(SrvId, CallId, NkPort, Msg) of
         {ok, SipMsg} ->
             work({incoming, SipMsg}, none, Call);
         {error, Error} ->
-            ?call_warning("Error parsing SipMsg: ~p", [Error]),
+            ?call_warning("Error parsing SipMsg1: ~p", [Error]),
             Call;
         {reply_error, Error, Reply} ->
-            case nksip_transport:get_connected(AppId, Transp) of
-                [{_, Pid}|_] -> 
-                    case nksip_connection:send(Pid, Reply) of
+            case nksip_util:get_connected(SrvId, NkPort) of
+                [Pid|_] -> 
+                    case nkpacket_connection:send(Pid, Reply) of
                         ok -> 
                             ok;
                         {error, _SendError} -> 
-                            ?call_warning("Error parsing SipMsg: ~p", [Error])
+                            ?call_warning("Error parsing SipMsg2: ~p", [Error])
                     end;
                 [] ->
-                    ?call_warning("Error parsing SipMsg: ~p", [Error])
+                    ?call_warning("Error parsing SipMsg3: ~p", [Error])
             end,
             Call
     end;
@@ -179,12 +177,12 @@ work({apply_dialog, DialogId, Fun}, From, Call) ->
     end;
     
 work({get_authorized_list, DlgId}, From, #call{auths=Auths}=Call) ->
-    List = [{Proto, Ip, Port} || {D, Proto, Ip, Port} <- Auths, D==DlgId],
+    List = [{Transp, Ip, Port} || {D, Transp, Ip, Port} <- Auths, D==DlgId],
     gen_server:reply(From, {ok, List}),
     Call;
 
 work({clear_authorized_list, DlgId}, From, #call{auths=Auths}=Call) ->
-    Auths1 = [{D, Proto, Ip, Port} || {D, Proto, Ip, Port} <- Auths, D/=DlgId],
+    Auths1 = [{D, Transp, Ip, Port} || {D, Transp, Ip, Port} <- Auths, D/=DlgId],
     gen_server:reply(From, ok),
     Call#call{auths=Auths1};
 
@@ -214,7 +212,7 @@ work({apply_sipmsg, MsgId, Fun}, From, Call) ->
 
 work(info, From, Call) -> 
     #call{
-        app_id = AppId, 
+        srv_id = SrvId, 
         call_id = CallId, 
         trans = Trans, 
         dialogs = Dialogs,
@@ -227,7 +225,7 @@ work(info, From, Call) ->
                 {Tag, Timer} -> {Tag, erlang:read_timer(Timer)};
                 undefined -> undefined
             end,
-            {trans, AppId, CallId, Id, Class, Method, Status, T}
+            {trans, SrvId, CallId, Id, Class, Method, Status, T}
         end,
         Trans),
     InfoDialog = lists:map(
@@ -248,7 +246,7 @@ work(info, From, Call) ->
                     #subscription{id=EvId, status=Status, class=Class, timer_expire=Exp} 
                     <- Subs
                 ],
-            {dlg, AppId, DlgId, {invite, Inv}, {event, Ev}}
+            {dlg, SrvId, DlgId, {invite, Inv}, {event, Ev}}
         end,
         Dialogs),
     InfoProvEvents = case ProvEvents of

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -51,13 +51,13 @@
     nksip:handle().
 
 get_handle({user_subs, #subscription{id=SubsId}, 
-               #dialog{app_id=AppId, id=DialogId, call_id=CallId}}) ->
-    App = atom_to_binary(AppId, latin1), 
-    <<$U, $_, SubsId/binary, $_, DialogId/binary, $_, App/binary, $_, CallId/binary>>;
-get_handle(#sipmsg{app_id=AppId, dialog_id=DialogId, call_id=CallId}=SipMsg) ->
+               #dialog{srv_id=SrvId, id=DialogId, call_id=CallId}}) ->
+    Srv = atom_to_binary(SrvId, latin1), 
+    <<$U, $_, SubsId/binary, $_, DialogId/binary, $_, Srv/binary, $_, CallId/binary>>;
+get_handle(#sipmsg{srv_id=SrvId, dialog_id=DialogId, call_id=CallId}=SipMsg) ->
     SubsId = make_id(SipMsg),
-    App = atom_to_binary(AppId, latin1), 
-    <<$U, $_, SubsId/binary, $_, DialogId/binary, $_, App/binary, $_, CallId/binary>>;
+    Srv = atom_to_binary(SrvId, latin1), 
+    <<$U, $_, SubsId/binary, $_, DialogId/binary, $_, Srv/binary, $_, CallId/binary>>;
 get_handle(<<"U_", _/binary>>=Id) ->
     Id;
 get_handle(_) ->
@@ -66,12 +66,12 @@ get_handle(_) ->
 
 %% @private
 -spec parse_handle(nksip:handle()) ->
-    {nksip:app_id(), id(), nksip_dialog_lib:id(), nksip:call_id()}.
+    {nksip:srv_id(), id(), nksip_dialog_lib:id(), nksip:call_id()}.
 
-parse_handle(<<"U_", SubsId:6/binary, $_, DialogId:6/binary, $_, App:7/binary, 
+parse_handle(<<"U_", SubsId:6/binary, $_, DialogId:6/binary, $_, Srv:7/binary, 
          $_, CallId/binary>>) ->
-    AppId = binary_to_existing_atom(App, latin1),
-    {AppId, SubsId, DialogId, CallId};
+    SrvId = binary_to_existing_atom(Srv, latin1),
+    {SrvId, SubsId, DialogId, CallId};
 parse_handle(_) ->
     error(invalid_handle).
 
@@ -91,7 +91,7 @@ meta(Field, {user_subs, U, D}) ->
         event -> 
             U#subscription.event;
         raw_event -> 
-            nksip_unparse:token(U#subscription.event);
+            nklib_unparse:token(U#subscription.event);
         class -> 
             U#subscription.class;
         answered -> 
@@ -128,7 +128,7 @@ remote_meta(Field, Handle) ->
     {ok, [{nksip_dialog:field(), term()}]} | {error, term()}.
 
 remote_metas(Fields, Handle) when is_list(Fields) ->
-    {AppId, SubsId, DialogId, CallId} = parse_handle(Handle),
+    {SrvId, SubsId, DialogId, CallId} = parse_handle(Handle),
     Fun = fun(Dialog) ->
         case find(SubsId, Dialog) of
             #subscription{} = U -> 
@@ -142,7 +142,7 @@ remote_metas(Fields, Handle) when is_list(Fields) ->
                 {error, invalid_subscription}
         end
     end,
-    case nksip_call:apply_dialog(AppId, CallId, DialogId, Fun) of
+    case nksip_call:apply_dialog(SrvId, CallId, DialogId, Fun) of
         {apply, {ok, Values}} -> 
             {ok, Values};
         {apply, {error, {invalid_field, Field}}} -> 
@@ -178,14 +178,14 @@ remote_metas(Fields, Handle) when is_list(Fields) ->
     id().
 
 make_id(#sipmsg{class={req, 'REFER'}, cseq={CSeqNum, 'REFER'}}) ->
-    nksip_lib:hash({<<"refer">>, nksip_lib:to_binary(CSeqNum)});
+    nklib_util:hash({<<"refer">>, nklib_util:to_binary(CSeqNum)});
 
 make_id(#sipmsg{class={resp, _, _}, cseq={CSeqNum, 'REFER'}}) ->
-    nksip_lib:hash({<<"refer">>, nksip_lib:to_binary(CSeqNum)});
+    nklib_util:hash({<<"refer">>, nklib_util:to_binary(CSeqNum)});
 
 make_id(#sipmsg{event={Event, Opts}}) ->
-    Id = nksip_lib:get_value(<<"id">>, Opts),
-    nksip_lib:hash({Event, Id}).
+    Id = nklib_util:get_value(<<"id">>, Opts),
+    nklib_util:hash({Event, Id}).
 
 
 %% @private Finds a event.
@@ -206,13 +206,13 @@ do_find(Id, [_|Rest]) -> do_find(Id, Rest).
 
 
 %% @private Hack to find the UAS subscription from the UAC and the opposite way
-remote_id(Handle, App) ->
-    {_AppId0, SubsId, _DialogId, CallId} = parse_handle(Handle),
+remote_id(Handle, Srv) ->
+    {_SrvId0, SubsId, _DialogId, CallId} = parse_handle(Handle),
     {ok, DialogHandle} = nksip_dialog:get_handle(Handle),
-    RemoteId = nksip_dialog_lib:remote_id(DialogHandle, App),
-    {AppId1, RemDialogId, CallId} = nksip_dialog_lib:parse_handle(RemoteId),
-    App1 = atom_to_binary(AppId1, latin1),
-    <<$U, $_, SubsId/binary, $_, RemDialogId/binary, $_, App1/binary, $_, CallId/binary>>.
+    RemoteId = nksip_dialog_lib:remote_id(DialogHandle, Srv),
+    {SrvId1, RemDialogId, CallId} = nksip_dialog_lib:parse_handle(RemoteId),
+    Srv1 = atom_to_binary(SrvId1, latin1),
+    <<$U, $_, SubsId/binary, $_, RemDialogId/binary, $_, Srv1/binary, $_, CallId/binary>>.
 
 
 %% @private
@@ -227,26 +227,26 @@ state(#sipmsg{}=SipMsg) ->
         end,
         case Name of
             <<"active">> -> 
-                case nksip_lib:get_integer(<<"expires">>, Opts, -1) of
+                case nklib_util:get_integer(<<"expires">>, Opts, -1) of
                     -1 -> Expires = undefined;
                     Expires when is_integer(Expires), Expires>=0 -> ok;
                     _ -> Expires = throw(invalid)
                 end,
                  {active, Expires};
             <<"pending">> -> 
-                case nksip_lib:get_integer(<<"expires">>, Opts, -1) of
+                case nklib_util:get_integer(<<"expires">>, Opts, -1) of
                     -1 -> Expires = undefined;
                     Expires when is_integer(Expires), Expires>=0 -> ok;
                     _ -> Expires = throw(invalid)
                 end,
                 {pending, Expires};
             <<"terminated">> ->
-                case nksip_lib:get_integer(<<"retry-after">>, Opts, -1) of
+                case nklib_util:get_integer(<<"retry-after">>, Opts, -1) of
                     -1 -> Retry = undefined;
                     Retry when is_integer(Retry), Retry>=0 -> ok;
                     _ -> Retry = throw(invalid)
                 end,
-                case nksip_lib:get_value(<<"reason">>, Opts) of
+                case nklib_util:get_value(<<"reason">>, Opts) of
                     undefined -> 
                         {terminated, undefined, undefined};
                     Reason0 ->

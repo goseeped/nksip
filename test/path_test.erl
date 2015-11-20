@@ -21,6 +21,7 @@
 %% -------------------------------------------------------------------
 
 -module(path_test).
+-include_lib("nklib/include/nklib.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/nksip.hrl").
@@ -41,38 +42,38 @@ path_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(p1, ?MODULE, [], [
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]}
+    ok = tests_util:start(p1, ?MODULE, [
+        {sip_local_host, "localhost"},
+        {transports, "sip:all:5060, <sip:all:5061;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(p2, ?MODULE, [], [
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]}
+    ok = tests_util:start(p2, ?MODULE, [
+        {sip_local_host, "localhost"},
+        {transports, ["<sip:all:5070>", "<sip:all:5071;transport=tls>"]}
     ]),
 
-    {ok, _} = nksip:start(p3, ?MODULE, [], [
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5080}, {tls, all, 5081}]}
+    ok = tests_util:start(p3, ?MODULE, [
+        {sip_local_host, "localhost"},
+        {transports, "<sip:all:5080>,<sip:all:5081;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(registrar, ?MODULE, [], [
+    ok = tests_util:start(registrar, ?MODULE, [
+        {sip_local_host, "localhost"},
         {plugins, [nksip_registrar]},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5090}, {tls, all, 5091}]}
+        {transports, ["<sip:all:5090>", "<sip:all:5091;transport=tls>"]}
     ]),
 
-    {ok, _} = nksip:start(ua1, ?MODULE, [], [
-        {from, "sip:ua1@nksip"},
-        {route, "<sip:127.0.0.1;lr>"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 0}, {tls, all, 0}]}
+    ok = tests_util:start(ua1, ?MODULE, [
+        {sip_from, "sip:ua1@nksip"},
+        {sip_route, "<sip:127.0.0.1;lr>"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all, <sip:all;transport=tls>"}
     ]),
 
-    {ok, _} = nksip:start(ua2, ?MODULE, [], [
-        {route, "<sip:127.0.0.1:5090;lr>"},
-        {local_host, "127.0.0.1"},
-        {transports, [udp, tls]}
+    ok = tests_util:start(ua2, ?MODULE, [
+        {sip_route, "<sip:127.0.0.1:5090;lr>"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all, <sip:all;transport=tls>"}
     ]),
 
     tests_util:log(),
@@ -106,10 +107,10 @@ basic() ->
 
     {ok, 200, [{<<"path">>, Path}]} = 
         nksip_uac:register(ua1, "sip:nksip", [supported, contact, {meta, [<<"path">>]}]),
-    [P1, P2] = nksip_parse:uris(Path),
+    [P1, P2] = nklib_parse:uris(Path),
 
     
-    {ok, Registrar} = nksip:find_app_id(registrar),
+    {ok, Registrar} = nkservice_server:get_srv_id(registrar),
     [#reg_contact{
         contact = #uri{scheme = sip,user = <<"ua1">>,domain = <<"127.0.0.1">>},
         path = [
@@ -135,7 +136,7 @@ basic() ->
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, p1} ->
             % P1 is the outbound proxy.
             % It domain is 'nksip', it sends the request to P2, 
@@ -208,8 +209,8 @@ sip_invite(Req, _Call) ->
 
 sip_options(Req, _Call) ->
     {ok, Ids} = nksip_request:header(<<"x-nk-id">>, Req),
-    {ok, App} = nksip_request:app_name(Req),
-    Hds = [{add, "x-nk-id", nksip_lib:bjoin([App|Ids])}],
+    {ok, App} = nksip_request:srv_name(Req),
+    Hds = [{add, "x-nk-id", nklib_util:bjoin([App|Ids])}],
     {reply, {ok, [contact|Hds]}}.
 
 

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,11 +25,18 @@
 -behaviour(application).
 
 -export([start/0, start/2, stop/1]).
+-export([get/1, get/2, put/2, del/1]).
 -export([profile_output/0]).
 
 -include("nksip.hrl").
 
+-compile({no_auto_import, [get/1, put/2]}).
+
 -define(APP, nksip).
+-define(RE_CALL_ID, "\r\n\s*(i|call\-id)\s*:\s*(.*?)\s*\r\n").
+-define(RE_CONTENT_LENGTH, "\r\n\s*(l|content-length)\s*:\s*(.*?)\s*\r\n").
+-define(MINUS_CSEQ, 46111468).  % Generate lower values to debug
+
 
 %% ===================================================================
 %% Private
@@ -40,7 +47,7 @@
     ok | {error, Reason::term()}.
 
 start() ->
-    case nksip_lib:ensure_all_started(?APP, permanent) of
+    case nklib_util:ensure_all_started(?APP, permanent) of
         {ok, _Started} ->
             ok;
         Error ->
@@ -57,20 +64,66 @@ start(_Type, _Args) ->
         _ ->
             ok
     end,
-    ok = nksip_config:make_cache(),
-    {ok, Pid} = nksip_sup:start_link(),
-    MainIp = nksip_config:get(main_ip),
-    MainIp6 = nksip_config:get(main_ip6),
-    {ok, Vsn} = application:get_key(nksip, vsn),
-    lager:notice("NkSIP v~s has started. Main IP is ~s (~s)", 
-                    [Vsn, nksip_lib:to_host(MainIp), nksip_lib:to_host(MainIp6)]),
-    {ok, Pid}.
+    AppSyntax = nksip_syntax:app_syntax(),
+    ServiceSyntax = nksip_syntax:syntax(),
+    Syntax = maps:merge(AppSyntax, ServiceSyntax),
+    Defaults = maps:merge(nksip_syntax:app_defaults(), nksip_syntax:defaults()),
+    case nklib_config:load_env(?APP, Syntax, Defaults) of
+        {ok, Parsed} ->
+            put(global_id, nklib_util:luid()),
+            {ok, ReCallId} = re:compile(?RE_CALL_ID, [caseless]),
+            put(re_call_id, ReCallId),
+            {ok, ReCL} = re:compile(?RE_CONTENT_LENGTH, [caseless]),
+            put(re_content_length, ReCL),
+            ServiceKeys = maps:keys(ServiceSyntax),
+            ServiceDefaults = nklib_util:extract(Parsed, ServiceKeys),
+            put(sip_defaults, ServiceDefaults),
+            CacheKeys = [
+                global_id, re_call_id, re_content_length, sip_defaults 
+                | maps:keys(nksip_syntax:app_syntax())],
+            DataPath = nkservice_app:get(log_path),
+            nklib_config:make_cache(CacheKeys, ?APP, none, 
+                                    nksip_config_cache, DataPath),
+            ok = nkpacket:register_protocol(sip, nksip_protocol),
+            ok = nkpacket:register_protocol(sips, nksip_protocol),
+            {ok, Pid} = nksip_sup:start_link(),
+            put(current_cseq, nksip_util:initial_cseq()-?MINUS_CSEQ),
+            MainIp = nkpacket_config_cache:main_ip(),
+            MainIp6 = nkpacket_config_cache:main_ip6(),
+            {ok, Vsn} = application:get_key(nksip, vsn),
+            lager:notice("NkSIP v~s has started. Main IP is ~s (~s)", 
+                         [Vsn, nklib_util:to_host(MainIp), nklib_util:to_host(MainIp6)]),
+            {ok, Pid};
+        {error, Error} ->
+            lager:error("Error parsing config: ~p", [Error]),
+            error(Error)
+    end.
+
 
 
 %% @private OTP standard stop callback
 stop(_) ->
     ok.
 
+
+%% @doc gets a configuration value
+get(Key) ->
+    get(Key, undefined).
+
+
+%% @doc gets a configuration value
+get(Key, Default) ->
+    nklib_config:get(?APP, Key, Default).
+
+
+%% @doc updates a configuration value
+put(Key, Value) ->
+    nklib_config:put(?APP, Key, Value).
+
+
+%% @doc updates a configuration value
+del(Key) ->
+    nklib_config:del(?APP, Key).
 
 %% @private
 -spec profile_output() -> 

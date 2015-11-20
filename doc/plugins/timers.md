@@ -29,12 +29,12 @@ None
 
 ## Configuration Values
 
-### SipApp configuration values
+### Service configuration values
 
 Option|Default|Description
 ---|---|---
-nksip_timers_se|1800 (secs)|Default value for the Session Timer
-nksip_timers_min_se|90 (secs)|Minimum acceptable Session Timer (min 90, recomended 1800)
+sip_timers_se|1800 (secs)|Default value for the Session Timer
+sip_timers_min_se|90 (secs)|Minimum acceptable Session Timer (min 90, recomended 1800)
 
 
 ### Request generation values

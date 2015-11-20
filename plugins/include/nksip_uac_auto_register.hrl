@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -27,14 +27,15 @@
     interval :: non_neg_integer(),
     from :: any(),
     cseq :: nksip:cseq(),
-    next :: nksip_lib:timestamp(),
+    next :: nklib_util:timestamp(),
     ok :: boolean()
 }).
 
 
 -record(state, {
     pings :: [#sipreg{}],
-    regs :: [#sipreg{}]
+    regs :: [#sipreg{}],
+    pids :: [pid()]
 }).
 
 

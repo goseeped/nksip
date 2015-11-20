@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -270,17 +270,16 @@ update({subscribe, #sipmsg{class={req, Method}}=Req, Resp}, Subs, Dialog, Call) 
     cancel_timer(TimerN),
     cancel_timer(TimerExpire),
     cancel_timer(TimerMiddle),
-    #call{app_id=AppId, timers=#call_timers{t1=T1, tc=TC}} = Call,
-    Config = nksip_sipapp_srv:config(AppId),
+    #call{srv_id=SrvId, timers=#call_timers{t1=T1, tc=TC}} = Call,
     ReqExpires = case Req#sipmsg.expires of
         RE0 when is_integer(RE0), RE0>=0 -> RE0;
         _ when Method=='REFER' -> TC;
-        _ -> nksip_lib:get_value(event_exires, Config)
+        _ -> SrvId:cache_sip_event_exires()
     end,
     RespExpires = case Resp#sipmsg.expires of
         SE0 when is_integer(SE0), SE0>=0 -> SE0;
         _ when Method=='REFER' -> TC;
-        _ -> nksip_lib:get_value(event_exires, Config)
+        _ -> SrvId:cache_sip_event_exires()
     end,
     Expires = min(ReqExpires, RespExpires),
     ?call_debug("Event ~s expires updated to ~p", [Id, Expires]),
@@ -294,7 +293,7 @@ update({subscribe, #sipmsg{class={req, Method}}=Req, Resp}, Subs, Dialog, Call) 
         0 -> 
             undefined;
         _ ->
-            Offset = nksip_lib:get_value(event_expires_offset, Config),
+            Offset = SrvId:cache_sip_event_expires_offset(),
             start_timer(1000*(Expires+Offset), {timeout, Id}, Dialog)
     end,
     TimerMiddle1= case Expires of
@@ -342,11 +341,11 @@ update({Status, Expires}, Subs, Dialog, Call)
     cancel_timer(TimerMiddle),
     ?call_debug("Event ~s expires updated to ~p", [Id, Expires]),
     Answered1 = case Answered of
-        undefined -> nksip_lib:timestamp();
+        undefined -> nklib_util:timestamp();
         _ -> Answered
     end,
-    #call{app_id=AppId} = Call,
-    Offset = nksip_sipapp_srv:config(AppId, event_expires_offset),
+    #call{srv_id=SrvId} = Call,
+    Offset = SrvId:cache_sip_event_expires_offset(),
     Subs1 = Subs#subscription{
         status = Status,
         answered = Answered1,
@@ -421,7 +420,7 @@ request_uac_opts(Method, Opts, Dialog) ->
         false ->
             {ok, Opts};
         {value, {_, Id}, Opts1} ->
-            {_AppId, SubsId, _DialogId, _CallId} = nksip_subscription_lib:parse_handle(Id),
+            {_SrvId, SubsId, _DialogId, _CallId} = nksip_subscription_lib:parse_handle(Id),
             case nksip_subscription_lib:find(SubsId, Dialog) of
                 #subscription{} = Subs ->
                     {ok, request_uac_opts(Method, Opts1, Dialog, Subs)};
@@ -441,8 +440,8 @@ request_uac_opts('SUBSCRIBE', Opts, _Dialog, Subs) ->
 
 request_uac_opts('NOTIFY', Opts, Dialog, Subs) ->
     #subscription{event=Event, timer_expire=Timer} = Subs,
-    #dialog{app_id=AppId} = Dialog,
-    Offset = nksip_sipapp_srv:config(AppId, event_expires_offset),
+    #dialog{srv_id=SrvId} = Dialog,
+    Offset = SrvId:cache_sip_event_expires_offset(),
     {value, {_, SS}, Opts1} = lists:keytake(subscription_state, 1, Opts),
     SS1 = case SS of
         State when State==active; State==pending ->
@@ -499,7 +498,7 @@ create(Class, #sipmsg{class={req, Method}}=Req, Dialog, Call) ->
     Event = case Method of
         'REFER' -> 
             #sipmsg{cseq={CSeq, _}} = Req,
-            {<<"refer">>, [{<<"id">>, nksip_lib:to_binary(CSeq)}]};
+            {<<"refer">>, [{<<"id">>, nklib_util:to_binary(CSeq)}]};
         _ ->
             Req#sipmsg.event
     end,        
@@ -571,18 +570,18 @@ store(Subs, Dialog, _Call) ->
 -spec dialog_update(term(), #subscription{}, nksip:dialog(), nksip_call:call()) ->
     ok.
 
-dialog_update(Status, Subs, Dialog, #call{app_id=AppId}=Call) ->
+dialog_update(Status, Subs, Dialog, #call{srv_id=SrvId}=Call) ->
     Status1 = case Status of
         {terminated, Reason, undefined} -> {terminated, Reason};
         _ -> Status
     end,
     Args = [{subscription_status, Status1, {user_subs, Subs, Dialog}}, Dialog, Call],
-    AppId:nkcb_call(sip_dialog_update, Args, AppId).
+    SrvId:nks_sip_call(sip_dialog_update, Args, SrvId).
 
 
 %% @private
 cancel_timer(Ref) ->
-    nksip_lib:cancel_timer(Ref).
+    nklib_util:cancel_timer(Ref).
 
 
 %% @private

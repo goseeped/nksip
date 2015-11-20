@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -57,12 +57,12 @@ parse(Bin) ->
 
 
 %% @doc Parses a SIP packet. Message MUST have a \r\n\r\n.
--spec parse(nksip:protocol(), binary()) ->
+-spec parse(nkpacket:transport(), binary()) ->
     {ok, Class, [nksip:header()], binary(), binary()} | partial | error |
     {reply, Class, [nksip:header()], binary()}
     when Class :: {req, nksip:method(), binary()} | {resp, string(), binary()}.
 
-parse(Proto, Bin) ->
+parse(Transp, Bin) ->
     try
         Class = case first(Bin) of
             {req, Method, Uri, Rest1} -> {req, Method, Uri};
@@ -70,12 +70,12 @@ parse(Proto, Bin) ->
         end,
         {Headers, Rest2} = headers(Rest1, []),
         case proplists:get_all_values(<<"content-length">>, Headers) of
-            [] when Proto==tcp; Proto==tls -> 
+            [] when Transp==tcp; Transp==tls -> 
                 {reply, Class, Headers, <<"Content-Length">>};
             [] -> 
                 {ok, Class, Headers, Rest2, <<>>};
             [CL0] ->
-                case nksip_lib:to_integer(CL0) of
+                case nklib_util:to_integer(CL0) of
                     error -> 
                         {reply, Class, Headers, <<"Content-Length">>};
                     CL when CL<0 ->
@@ -84,7 +84,7 @@ parse(Proto, Bin) ->
                         case byte_size(Rest2) of
                             CL -> 
                                 {ok, Class, Headers, Rest2, <<>>};
-                            BS when CL>BS andalso (Proto==tcp orelse Proto==tls) ->
+                            BS when CL>BS andalso (Transp==tcp orelse Transp==tls) ->
                                 partial;
                             BS when CL>BS ->
                                 {reply, Class, Headers, <<"Content-Length">>};

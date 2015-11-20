@@ -22,6 +22,8 @@
 %% -------------------------------------------------------------------
 
 -module(torture3_test).
+-include_lib("nklib/include/nklib.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/nksip.hrl").
@@ -57,10 +59,10 @@ torture3_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(server1, ?MODULE, [], [
-        {transports, [{udp, all, 5060}]},
-        {plugins, [nksip_registrar]},
-        no_100
+    ok = tests_util:start(server1, ?MODULE, [
+        {sip_no_100, true},
+        {transports, "sip:all:5060"},
+        {plugins, [nksip_registrar]}
     ]),
 
     tests_util:log(),
@@ -424,8 +426,8 @@ application_15() ->
 %% Internal
 
 parse(Msg) ->
-    {ok, AppId} = nksip:find_app_id(server1),
-    case nksip_parse:packet(AppId, #transport{proto=udp}, Msg) of
+    {ok, SrvId} = nkservice_server:get_srv_id(server1),
+    case nksip_parse:packet(SrvId, #nkport{transp=udp}, Msg) of
         {ok, SipMsg, <<>>} -> SipMsg;
         {ok, SipMsg, Tail} -> {tail, SipMsg, Tail};
         partial -> partial;
@@ -452,7 +454,7 @@ send(tcp, Msg) ->
 
 
 sip_route(Scheme, _User, _Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} when Scheme=/=sip, Scheme=/=sips ->
             {reply, unsupported_uri_scheme};
         {ok, _} ->

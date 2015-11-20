@@ -1,8 +1,8 @@
 %% -------------------------------------------------------------------
 %%
-%% Server Callback module
+%% Service Callback module
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,21 +20,20 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc SipApp callback module.
+%% @doc Service callback module.
 %%
-%% This module implements the mandatory callback module of each SipApp application
+%% This module implements the mandatory callback module of each Service application
 %%
-%% This SipApp implements a SIP proxy, allowing  endpoints to register 
+%% This Service implements a SIP proxy, allowing  endpoints to register 
 %% and call each other using its registered uri. 
 %% Each registered endpoint's speed is monitored and special "extensions" are
 %% available to call all nodes, call the fastest, etc.
 %%
 %% See {@link //nksip_pbx} for an overview.
 
--module(nksip_pbx_sipapp).
+-module(nksip_pbx_callbacks).
 
--export([start/0, stop/0]).
--export([init/1, sip_get_user_pass/4, sip_authorize/3, sip_route/5]). 
+-export([init/2, sip_get_user_pass/4, sip_authorize/3, sip_route/5]). 
 -export([sip_invite/2]).
 -export([sip_dialog_update/3, sip_session_update/3]).
 -export([handle_call/3, handle_cast/2, handle_info/2]).
@@ -45,37 +44,19 @@
 -include("../../../plugins/include/nksip_registrar.hrl").
 
 
-%% @doc Starts a new SipApp, listening on port 5060 for udp and tcp and 5061 for tls,
-%% and acting as a registrar.
-start() ->
-    CoreOpts = [
-        {plugins, [nksip_registrar, nksip_100rel, nksip_gruu, nksip_outbound, nksip_timers]},                      
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]}
-    ],
-    {ok, _} = nksip:start(pbx, ?MODULE, [], CoreOpts).
-
-
-%% @doc Stops the SipApp.
-stop() ->
-    nksip:stop(pbx).
-
-
 %%%%%%%%%%%%%%%%%%%%%%%  NkSIP CallBacks %%%%%%%%%%%%%%%%%%%%%%%%
 
--record(state, {
-    auto_check
-}).
 
-%% @doc SipApp Callback: initialization.
+%% @doc Service Callback: initialization.
 %% This function is called by NkSIP after calling `nksip:start/4'.
 %% We program a timer to check our nodes.
-init([]) ->
+init(_Spec, State) ->
     erlang:start_timer(?TIME_CHECK, self(), check_speed),
-    nksip:put(pbx, speed, []),
-    {ok, #state{auto_check=true}}.
+    nkservice_server:put(pbx, speed, []),
+    {ok, State#{nksip_pbx=>#{auto_check=>true}}}.
 
 
-%% @doc SipApp Callback: Called to check user's password.
+%% @doc Service Callback: Called to check user's password.
 %% If the incoming user's realm is one of our domains, the password for any 
 %% user is "1234". For other realms, no password is valid.
 sip_get_user_pass(_User, <<"nksip">>, _Req, _Call) ->
@@ -84,7 +65,7 @@ sip_get_user_pass(_User, _Realm, _Req, _Call) ->
     false.
 
 
-%% @doc SipApp Callback: Called to check if a request should be authorized.
+%% @doc Service Callback: Called to check if a request should be authorized.
 %% - We first check to see if the request is an in-dialog request, coming from 
 %%   the same ip and port of a previously authorized request.
 %% - If not, we check if we have a previous authorized REGISTER request from 
@@ -104,7 +85,7 @@ sip_authorize(Auth, Req, _Call) ->
         true -> 
             ok;
         false ->
-            case nksip_lib:get_value({digest, <<"nksip">>}, Auth) of
+            case nklib_util:get_value({digest, <<"nksip">>}, Auth) of
                 true -> 
                     ok;             % Password is valid
                 false -> 
@@ -116,7 +97,7 @@ sip_authorize(Auth, Req, _Call) ->
     end.
 
 
-%% @doc SipApp Callback: Called to decide how to route every new request.
+%% @doc Service Callback: Called to decide how to route every new request.
 %%
 %%  - If the user part of the request-uri is 200, proxy in parallel to all
 %%    registered endpoints but me, including a Record-Route header, so
@@ -132,7 +113,7 @@ sip_authorize(Auth, Req, _Call) ->
 %%    process locally if it is one of our domains.
 %%    (Since we have not implemented `sip_invite/2', `sip_options/2,' etc., all responses
 %%    will be default responses). REGISTER will be processed as configured
-%%    when starting the SipApp.
+%%    when starting the Service.
 
 sip_route(_Scheme, <<"200">>, <<"nksip">>, Req, _Call) ->
     UriList = find_all_except_me(Req),
@@ -144,12 +125,12 @@ sip_route(_Scheme, <<"201">>, <<"nksip">>, Req, _Call) ->
     {proxy, UriList, [{add, "x-nksip-server", <<"201">>}]};
 
 sip_route(_Scheme, <<"202">>, <<"nksip">>, _Req, _Call) ->
-    {ok, Speed} = nksip:get(pbx, speed),
+    Speed = nkservice_server:get(pbx, speed),
     UriList = [[Uri] || {_Time, Uri} <- lists:sort(Speed)],
     {proxy, UriList};
 
 sip_route(_Scheme, <<"203">>, <<"nksip">>, _Req, _Call) ->
-    {ok, Speed} = nksip:get(pbx, speed),
+    Speed = nkservice_server:get(pbx, speed),
     UriList = [[Uri] || {_Time, Uri} <- lists:sort(Speed)],
     {proxy, lists:reverse(UriList)};
 
@@ -229,35 +210,35 @@ sip_invite(Req, _Call) ->
     end.
 
 
-%% @doc SipApp Callback: Synchronous user call.
+%% @doc Service Callback: Synchronous user call.
 handle_call(get_speed, _From, State) ->
-    {ok, Speed} = nksip:get(pbx, speed),
-    Reply = [{Time, nksip_unparse:uri(Uri)} || {Time, Uri} <- Speed],
+    Speed = nkservice_server:get(pbx, speed),
+    Reply = [{Time, nklib_unparse:uri(Uri)} || {Time, Uri} <- Speed],
     {reply, Reply, State}.
 
 
-%% @doc SipApp Callback: Asynchronous user cast.
+%% @doc Service Callback: Asynchronous user cast.
 handle_cast({speed_update, Speed}, State) ->
-    ok = nksip:put(pbx, speed, Speed),
+    ok = nkservice_server:put(pbx, speed, Speed),
     erlang:start_timer(?TIME_CHECK, self(), check_speed),
     {noreply, State};
 
 handle_cast({check_speed, true}, State) ->
-    handle_info({timeout, none, check_speed}, State#state{auto_check=true});
+    handle_info({timeout, none, check_speed}, State#{nksip_pbx=>#{auto_check=>true}});
 
 handle_cast({check_speed, false}, State) ->
-    {noreply, State#state{auto_check=false}}.
+    {noreply, State#{nksip_pbx=>#{auto_check=>false}}}.
 
 
-%% @doc SipApp Callback: External erlang message received.
+%% @doc Service Callback: External erlang message received.
 %% The programmed timer sends a `{timeout, _Ref, check_speed}' message
-%% periodically to the SipApp.
-handle_info({timeout, _, check_speed}, #state{auto_check=true}=State) ->
+%% periodically to the Service.
+handle_info({timeout, _, check_speed}, #{nksip_pbx:=#{auto_check:=true}}=State) ->
     Self = self(),
     spawn(fun() -> test_speed(Self) end),
     {noreply, State};
 
-handle_info({timeout, _, check_speed}, #state{auto_check=false}=State) ->
+handle_info({timeout, _, check_speed}, #{nksip_pbx:=#{auto_check:=false}}=State) ->
     {noreply, State}.
 
 

@@ -15,7 +15,7 @@
 
 ## Description
 
-This plugin allows a SipApp to program a serie of automatic registrations (sending REGISTER request) to a remote registrar, using SIP Outbound (RFC5626).
+This plugin allows a Service to program a serie of automatic registrations (sending REGISTER request) to a remote registrar, using SIP Outbound (RFC5626).
 
 Once a REGISTER to a remote registrar is successful, NkSIP will keep the flow opened sending refreshes over the connection as described in the outbound specification. If the flow fails, a new REGISTER will be send automatically to reopen it (after a specific time described in the specification).
 
@@ -28,15 +28,15 @@ Once a REGISTER to a remote registrar is successful, NkSIP will keep the flow op
 
 ## Configuration Values
 
-### SipApp configuration values
+### Service configuration values
 
 Option|Default|Description
 ---|---|---
-nksip_uac_auto_outbound_all_fail|30|Basetime to use then all connections have failed
-nksip_uac_auto_outbound_any_ok|90|Basetime to use when some, but not all, connections have failed
-nksip_uac_auto_outbound_max_time|1800|Maximum time for outbound
-nksip_uac_auto_outbound_default_udp_ttl|25|UDP connection default TTL
-nksip_uac_auto_outbound_default_tcp_ttl|120|TCP connection default TTL
+sip_uac_auto_outbound_all_fail|30|Basetime to use then all connections have failed
+sip_uac_auto_outbound_any_ok|90|Basetime to use when some, but not all, connections have failed
+sip_uac_auto_outbound_max_time|1800|Maximum time for outbound
+sip_uac_auto_outbound_default_udp_ttl|25|UDP connection default TTL
+sip_uac_auto_outbound_default_tcp_ttl|120|TCP connection default TTL
 
 
 ## API functions
@@ -44,7 +44,7 @@ nksip_uac_auto_outbound_default_tcp_ttl|120|TCP connection default TTL
 ### start_register/4
 
 ```erlang
-start_register(App::nksip:app_name()|nksip:app_id(), Id::term(), Uri::nksip:user_uri(),
+start_register(App::nksip:srv_name()|nksip:srv_id(), Id::term(), Uri::nksip:user_uri(),
 			   Opts::nksip:optslist()) -> 
     {ok, boolean()} | {error, term()}.
 ```
@@ -55,7 +55,7 @@ Similar to [nksip_uac_auto_register:start_register/4](auto_register.md#start_reg
 ### stop_register/2
 
 ```erlang
-stop_register(App::nksip:app_name()|nksip:app_id(), Id::term()) -> 
+stop_register(App::nksip:srv_name()|nksip:srv_id(), Id::term()) -> 
     ok | not_found.
 ```
 
@@ -65,7 +65,7 @@ Stops a previously started registration serie.
 ### get_registers/1
 
 ```erlang
-get_registers(App::nksip:app_name()|nksip:app_id()) -> 
+get_registers(App::nksip:srv_name()|nksip:srv_id()) -> 
     [{Id::term(), OK::boolean(), Time::non_neg_integer(), Fails::non_neg_integer}].
 ```
 Get current registration status, including if last registration was successful, the time remaining to next one and the number of current outbound fails.

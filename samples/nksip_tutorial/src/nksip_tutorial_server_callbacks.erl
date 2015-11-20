@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,7 +18,7 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc SipApp Tutorial server callback module implementation.
+%% @doc Service Tutorial server callback module implementation.
 %%
 %% This modules implements a proxy server callback module for NkSIP Tutorial.
 %% It allows any request from any user in domain "nksip", having password "1234".
@@ -26,10 +26,10 @@
 %% Request with user and domain "nksip" are found (as a registrar) and proxied.
 %% Other requests are proxied to the same origin Request-URI
 
--module(nksip_tutorial_sipapp_server).
+-module(nksip_tutorial_server_callbacks).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
--export([init/1, sip_get_user_pass/4, sip_authorize/3, sip_route/5, handle_call/3]).
+-export([init/2, sip_get_user_pass/4, sip_authorize/3, sip_route/5, handle_call/3]).
 
 
 
@@ -37,14 +37,10 @@
 %% Callbacks
 %% ===================================================================
 
--record(state, {
-    started
-}).
-
-%% @doc SipApp intialization.
-init([]) ->
-    nksip:put(server, started, httpd_util:rfc1123_date()),
-    {ok, []}.
+%% @doc Service intialization.
+init(_Opts, State) ->
+    nkservice_server:put(server, started, httpd_util:rfc1123_date()),
+    {ok, State}.
 
 
 %% @doc Called to check user's password.
@@ -114,5 +110,5 @@ sip_route(_Scheme, _User, _Domain, Req, _Call) ->
 
 
 %% @doc Synchronous user call.
-handle_call(get_started, _From, #state{started=Started}=State) ->
+handle_call(get_started, _From, #{started:=Started}=State) ->
     {reply, {ok, Started}, State}.

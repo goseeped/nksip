@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -60,8 +60,8 @@ reply({#sipmsg{class={resp, Code, _Reason}}=Resp, SendOpts},
                 ) ->
     {Resp1, SendOpts1} = 
         nksip_call_uas_dialog:update_response(Req, {Resp, SendOpts}, Call),
-    #call{app_id=AppId} = Call,
-    case AppId:nkcb_uas_send_reply({Resp1, SendOpts1}, UAS, Call) of
+    #call{srv_id=SrvId} = Call,
+    case SrvId:nks_sip_uas_send_reply({Resp1, SendOpts1}, UAS, Call) of
         {continue, [{Resp2, SendOpts2}, UAS2, Call2]} ->
             send({Resp2, SendOpts2}, UAS2, update(UAS2, Call2));
         {error, Error} ->
@@ -100,13 +100,13 @@ send({Resp, SendOpts}, UAS, Call) ->
         stateless = Stateless
     } = UAS,    
     #call{
-        app_id = AppId, 
+        srv_id = SrvId, 
         msgs = Msgs
     } = Call,
     case nksip_call_uas_transp:send_response(Resp, SendOpts) of
         {ok, Resp2} -> 
             UserReply = ok;
-        error -> 
+        {error, _} -> 
             UserReply = {error, service_unavailable},
             {Resp2, _} = nksip_reply:reply(Req, service_unavailable)
     end,
@@ -133,7 +133,7 @@ send({Resp, SendOpts}, UAS, Call) ->
             ?call_debug("UAS ~p ~p stateful reply ~p", [Id, Method, Code2]),
             UAS2 = UAS#trans{response=Resp2, code=Code2},
             Call4 = update(UAS2, Call3),
-            case AppId:nkcb_uas_sent_reply(Call4) of
+            case SrvId:nks_sip_uas_sent_reply(Call4) of
                 {ok, Call5} ->
                     {UserReply, Call5};
                 {continue, [Call5]} ->
@@ -171,11 +171,11 @@ stateful_reply(invite_proceeding, Code, UAS, Call) when Code < 300 ->
     nksip_call_lib:timeout_timer(timer_l, UAS3, Call);
 
 stateful_reply(invite_proceeding, Code, UAS, Call) when Code >= 300 ->
-    #trans{proto=Proto} = UAS,
+    #trans{transp=Transp} = UAS,
     UAS1 = UAS#trans{status=invite_completed, request=undefined},
     UAS2 = nksip_call_lib:expire_timer(cancel, UAS1, Call),
     UAS3 = nksip_call_lib:timeout_timer(timer_h, UAS2, Call),
-    case Proto of 
+    case Transp of 
         udp -> 
             nksip_call_lib:retrans_timer(timer_g, UAS3, Call);
         _ -> 
@@ -189,8 +189,8 @@ stateful_reply(proceeding, Code, UAS, _Call) when Code < 200 ->
     UAS;
 
 stateful_reply(proceeding, Code, UAS, Call) when Code >= 200 ->
-    #trans{proto=Proto} = UAS,
-    case Proto of
+    #trans{transp=Transp} = UAS,
+    case Transp of
         udp -> 
             UAS1 = UAS#trans{status=completed, request=undefined},
             nksip_call_lib:timeout_timer(timer_j, UAS1, Call);

@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,14 +25,14 @@
 -include("../include/nksip.hrl").
 -include("../include/nksip_call.hrl").
 -include("nksip_registrar.hrl").
--export([nkcb_nksip_registrar_request_opts/2, nkcb_nksip_registrar_update_regcontact/4,
-         nkcb_uac_response/4]).
+-export([nks_sip_registrar_request_opts/2, nks_sip_registrar_update_regcontact/4,
+         nks_sip_uac_response/4]).
 
 
 %% @private
-nkcb_nksip_registrar_request_opts(#sipmsg{app_id=AppId, contacts=Contacts}=Req, Opts) ->
+nks_sip_registrar_request_opts(#sipmsg{srv_id=SrvId, contacts=Contacts}=Req, Opts) ->
     case 
-        lists:member(<<"gruu">>, AppId:config_supported()) andalso 
+        lists:member(<<"gruu">>, SrvId:cache_sip_supported()) andalso 
         nksip_sipmsg:supported(<<"gruu">>, Req)
     of
         true -> 
@@ -46,12 +46,12 @@ nkcb_nksip_registrar_request_opts(#sipmsg{app_id=AppId, contacts=Contacts}=Req, 
 
 
 %% @private
-nkcb_nksip_registrar_update_regcontact(RegContact, Base, Req, Opts) ->
+nks_sip_registrar_update_regcontact(RegContact, Base, Req, Opts) ->
 	RegContact1 = nksip_gruu_lib:update_regcontact(RegContact, Base, Req, Opts),
     {continue, [RegContact1, Base, Req, Opts]}.
 
 
 %% @private
-nkcb_uac_response(Req, Resp, UAC, Call) ->
+nks_sip_uac_response(Req, Resp, UAC, Call) ->
     nksip_gruu_lib:update_gruu(Resp),
     {continue, [Req, Resp, UAC, Call]}.

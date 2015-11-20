@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -44,7 +44,7 @@ response(Resp, UAC, Call) ->
         class = {resp, Code, _Reason}, 
         id = MsgId, 
         dialog_id = DialogId,
-        transport = Transport
+        nkport = NkPort
     } = Resp,
     #trans{
         id = TransId, 
@@ -59,7 +59,7 @@ response(Resp, UAC, Call) ->
         msgs = Msgs, 
         timers = #call_timers{trans=TransTime}
     } = Call,
-    Now = nksip_lib:timestamp(),
+    Now = nklib_util:timestamp(),
     case Now-Start < TransTime of
         true -> 
             Code1 = Code,
@@ -78,7 +78,7 @@ response(Resp, UAC, Call) ->
     UAC1 = UAC#trans{response=Resp1, code=Code1},
     Call2 = update(UAC1, Call1),
     NoDialog = lists:member(no_dialog, Opts),
-    case Transport of
+    case NkPort of
         undefined -> 
             ok;    % It is own-generated
         _ -> 
@@ -118,7 +118,7 @@ response_status(invite_calling, Resp, UAC, Call) ->
 
 response_status(invite_proceeding, Resp, #trans{code=Code}=UAC, Call) when Code < 200 ->
     #trans{request=Req, cancel=Cancel} = UAC,
-    #call{app_id=AppId} = Call,
+    #call{srv_id=SrvId} = Call,
     % Add another 3 minutes
     UAC1 = nksip_call_lib:timeout_timer(timer_c, UAC, Call),
     Call1 = update(UAC1, Call),
@@ -127,7 +127,7 @@ response_status(invite_proceeding, Resp, #trans{code=Code}=UAC, Call) when Code 
         to_cancel -> nksip_call_uac:cancel(UAC1, [], Call2);
         _ -> Call2
     end,
-    case AppId:nkcb_uac_response(Req, Resp, UAC1, Call3) of
+    case SrvId:nks_sip_uac_response(Req, Resp, UAC1, Call3) of
         {continue, [_, _, _, Call4]} ->
             Call4;
         {ok, Call4} ->
@@ -160,7 +160,7 @@ response_status(invite_proceeding, Resp, #trans{code=Code, opts=Opts}=UAC, Call)
 
 
 % Final [3456]xx response received, own error response
-response_status(invite_proceeding, #sipmsg{transport=undefined}=Resp, UAC, Call) ->
+response_status(invite_proceeding, #sipmsg{nkport=undefined}=Resp, UAC, Call) ->
     Call1 = nksip_call_uac_reply:reply({resp, Resp}, UAC, Call),
     UAC1 = UAC#trans{status=finished, cancel=undefined},
     UAC2 = nksip_call_lib:timeout_timer(cancel, UAC1, Call),
@@ -171,8 +171,8 @@ response_status(invite_proceeding, #sipmsg{transport=undefined}=Resp, UAC, Call)
 % Final [3456]xx response received, real response
 response_status(invite_proceeding, Resp, UAC, Call) ->
     #sipmsg{to={To, ToTag}} = Resp,
-    #trans{request=Req, proto=Proto} = UAC,
-    #call{app_id=AppId} = Call,
+    #trans{request=Req, transp=Transp} = UAC,
+    #call{srv_id=SrvId} = Call,
     UAC1 = UAC#trans{
         request = Req#sipmsg{to={To, ToTag}}, 
         response = undefined, 
@@ -182,7 +182,7 @@ response_status(invite_proceeding, Resp, UAC, Call) ->
     UAC2 = nksip_call_lib:timeout_timer(cancel, UAC1, Call),
     UAC3 = nksip_call_lib:expire_timer(cancel, UAC2, Call),
     send_ack(UAC3, Call),
-    UAC5 = case Proto of
+    UAC5 = case Transp of
         udp -> 
             UAC4 = UAC3#trans{status=invite_completed},
             nksip_call_lib:timeout_timer(timer_d, UAC4, Call);
@@ -190,7 +190,7 @@ response_status(invite_proceeding, Resp, UAC, Call) ->
             UAC3#trans{status=finished}
     end,
     Call1 = update(UAC5, Call),
-    case AppId:nkcb_uac_response(Req, Resp, UAC5, Call1) of
+    case SrvId:nks_sip_uac_response(Req, Resp, UAC5, Call1) of
         {continue, [_Req6, Resp6, UAC6, Call6]} ->
             nksip_call_uac_reply:reply({resp, Resp6}, UAC6, Call6);
         {ok, Call2} ->
@@ -239,7 +239,7 @@ response_status(proceeding, #sipmsg{class={resp, Code, _Reason}}=Resp, UAC, Call
     nksip_call_uac_reply:reply({resp, Resp}, UAC, Call);
 
 % Final response received, own error response
-response_status(proceeding, #sipmsg{transport=undefined}=Resp, UAC, Call) ->
+response_status(proceeding, #sipmsg{nkport=undefined}=Resp, UAC, Call) ->
     Call1 = nksip_call_uac_reply:reply({resp, Resp}, UAC, Call),
     UAC1 = UAC#trans{status=finished},
     UAC2 = nksip_call_lib:timeout_timer(cancel, UAC1, Call),
@@ -248,9 +248,9 @@ response_status(proceeding, #sipmsg{transport=undefined}=Resp, UAC, Call) ->
 % Final response received, real response
 response_status(proceeding, Resp, UAC, Call) ->
     #sipmsg{to={_, ToTag}} = Resp,
-    #trans{request=Req, proto=Proto} = UAC,
-    #call{app_id=AppId} = Call,
-    UAC2 = case Proto of
+    #trans{request=Req, transp=Transp} = UAC,
+    #call{srv_id=SrvId} = Call,
+    UAC2 = case Transp of
         udp -> 
             UAC1 = UAC#trans{
                 status = completed, 
@@ -264,7 +264,7 @@ response_status(proceeding, Resp, UAC, Call) ->
             nksip_call_lib:timeout_timer(cancel, UAC1, Call)
     end,
     Call1 = update(UAC2, Call),
-    case AppId:nkcb_uac_response(Req, Resp, UAC2, Call1) of
+    case SrvId:nks_sip_uac_response(Req, Resp, UAC2, Call1) of
         {continue, [_Req6, Resp6, UAC6, Call6]} ->
             nksip_call_uac_reply:reply({resp, Resp6}, UAC6, Call6);
         {ok, Call2} ->
@@ -338,7 +338,7 @@ send_ack(#trans{request=Req, id=TransId}, _Call) ->
     case nksip_call_uac_transp:resend_request(Ack, []) of
         {ok, _} -> 
             ok;
-        error -> 
+        {error, _} -> 
             ?call_notice("UAC ~p could not send non-2xx ACK", [TransId])
     end.
 

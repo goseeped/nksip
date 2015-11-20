@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -41,7 +41,7 @@
     finished | ack.
 
 -type uac_from() :: 
-    none | {srv, from()} | {fork, nksip_call_fork:id()}.
+    none | {srv, {pid(), term()}} | {fork, nksip_call_fork:id()}.
 
 
 %% ===================================================================
@@ -55,9 +55,9 @@
 
 request(Req, Opts, From, Call) ->
     #sipmsg{class={req, Method}, id=MsgId} = Req,
-    #call{app_id=AppId} = Call,
+    #call{srv_id=SrvId} = Call,
     {continue, [Req1, Opts1, From1, Call1]} = 
-        AppId:nkcb_uac_pre_request(Req, Opts, From, Call),
+        SrvId:nks_sip_uac_pre_request(Req, Opts, From, Call),
     {#trans{id=TransId}=UAC, Call2} = make_trans(Req1, Opts1, From1, Call1),
     case lists:member(async, Opts1) andalso From1 of
         {srv, SrvFrom} when Method=='ACK' -> 
@@ -97,11 +97,11 @@ dialog(DialogId, Method, Opts, Call) ->
     {ok, nksip:request(), nksip:optslist(), nksip_call:call()} | {error, term()}.
 
 make_dialog(DialogId, Method, Opts, Call) ->
-    #call{app_id=AppId, call_id=CallId} = Call,
+    #call{srv_id=SrvId, call_id=CallId} = Call,
     case nksip_call_uac_dialog:make(DialogId, Method, Opts, Call) of
         {ok, RUri, Opts1, Call1} -> 
             Opts2 = [{call_id, CallId} | Opts1],
-            case nksip_call_uac_make:make(AppId, Method, RUri, Opts2) of
+            case nksip_call_uac_make:make(SrvId, Method, RUri, Opts2) of
                 {ok, Req, ReqOpts} ->
                     {ok, Req, ReqOpts, Call1};
                 {error, Error} ->
@@ -139,7 +139,7 @@ resend(Req, UAC, Call) ->
 
 %% @doc Tries to cancel an ongoing invite request with a reason
 -spec cancel(nksip_call:trans_id(), nksip:optslist(), 
-             {srv, from()} | undefined, nksip_call:call()) ->
+             {srv, {pid(), term()}} | undefined, nksip_call:call()) ->
     nksip_call:call().
 
 cancel(TransId, Opts, From, #call{trans=Trans}=Call) when is_integer(TransId) ->
@@ -190,12 +190,12 @@ cancel(#trans{id=TransId, cancel=Cancel, status=Status}, _Opts, Call) ->
 
 is_stateless(Resp) ->
     #sipmsg{vias=[#via{opts=Opts}|_]} = Resp,
-    case nksip_lib:get_binary(<<"branch">>, Opts) of
+    case nklib_util:get_binary(<<"branch">>, Opts) of
         <<"z9hG4bK", Branch/binary>> ->
             case binary:split(Branch, <<"-">>) of
                 [BaseBranch, NkSIP] ->
                     GlobalId = nksip_config_cache:global_id(),
-                    case nksip_lib:hash({BaseBranch, GlobalId, stateless}) of
+                    case nklib_util:hash({BaseBranch, GlobalId, stateless}) of
                         NkSIP -> true;
                         _ -> false
                     end;
@@ -232,14 +232,14 @@ make_trans(Req, Opts, From, Call) ->
         id = TransId,
         class = uac,
         status = Status,
-        start = nksip_lib:timestamp(),
+        start = nklib_util:timestamp(),
         from = From,
         opts = Opts1,
         trans_id = undefined,
         request = Req#sipmsg{dialog_id=DialogId},
         method = Method,
         ruri = RUri,
-        proto = undefined,
+        transp = undefined,
         response = undefined,
         code = 0,
         to_tags = [],
@@ -262,7 +262,7 @@ make_trans(Req, Opts, From, Call) ->
 -spec response(nksip:response(), nksip_call:call()) ->
     nksip_call:call().
 
-response(Resp, #call{app_id=AppId, trans=Trans}=Call) ->
+response(Resp, #call{srv_id=SrvId, trans=Trans}=Call) ->
     #sipmsg{class={resp, Code, _Reason}, cseq={_, Method}} = Resp,
     TransId = nksip_call_lib:uac_transaction_id(Resp),
     case lists:keyfind(TransId, #trans.trans_id, Trans) of
@@ -273,7 +273,7 @@ response(Resp, #call{app_id=AppId, trans=Trans}=Call) ->
             end,
             DialogId = nksip_call_uac_dialog:uac_dialog_id(Resp, IsProxy, Call),
             Resp1 = Resp#sipmsg{ruri=RUri, dialog_id=DialogId},
-            case AppId:nkcb_uac_pre_response(Resp1, UAC, Call) of
+            case SrvId:nks_sip_uac_pre_response(Resp1, UAC, Call) of
                 {continue, [Resp2, UAC2, Call2]} ->
                     nksip_call_uac_resp:response(Resp2, UAC2, Call2);
                 {ok, Call2} ->

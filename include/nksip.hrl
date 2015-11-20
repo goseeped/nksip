@@ -1,7 +1,7 @@
 %%
 %% nksip.hrl: Common types and records definition
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,98 +26,62 @@
 %% Defines
 %% ===================================================================
 
--define(VERSION, "0.4.0").
+-define(VERSION, "0.5.0").
 
 -define(
-    DO_LOG(Level, App, CallId, Text, Opts),
+    DO_LOG(Level, Srv, CallId, Text, Opts),
     case CallId of
         <<>> ->
-            lager:Level([{app, App}], "~p "++Text, [App|Opts]);
+            lager:Level([{app, Srv}], "~p "++Text, [Srv|Opts]);
         _ -> 
-            lager:Level([{app, App}, {call_id, CallId}], "~p (~s) "++Text, [App, CallId|Opts])
+            lager:Level([{app, Srv}, {call_id, CallId}], "~p (~s) "++Text, [Srv, CallId|Opts])
     end).
 
--define(DO_DEBUG(AppId, CallId, Level, Text, List),
-    case AppId:config_debug() of
+-define(DO_DEBUG(SrvId, CallId, Level, Text, List),
+    case SrvId:cache_sip_debug() of
         false -> ok;
-        _ -> AppId:nkcb_debug(AppId, CallId, {Level, Text, List})
+        _ -> SrvId:nks_sip_debug(SrvId, CallId, {Level, Text, List})
     end).
 
 
--define(debug(AppId, CallId, Text, List), 
-    ?DO_DEBUG(AppId, CallId, debug, Text, List),
-    case AppId:config_log_level() >= 8 of
-        true -> ?DO_LOG(debug, AppId:name(), CallId, Text, List);
+-define(debug(SrvId, CallId, Text, List), 
+    ?DO_DEBUG(SrvId, CallId, debug, Text, List),
+    case SrvId:cache_log_level() >= 8 of
+        true -> ?DO_LOG(debug, SrvId:name(), CallId, Text, List);
         false -> ok
     end).
 
--define(info(AppId, CallId, Text, List), 
-    ?DO_DEBUG(AppId, CallId, info, Text, List),
-    case AppId:config_log_level() >= 7 of
-        true -> ?DO_LOG(info, AppId:name(), CallId, Text, List);
+-define(info(SrvId, CallId, Text, List), 
+    ?DO_DEBUG(SrvId, CallId, info, Text, List),
+    case SrvId:cache_log_level() >= 7 of
+        true -> ?DO_LOG(info, SrvId:name(), CallId, Text, List);
         false -> ok
     end).
 
--define(notice(AppId, CallId, Text, List), 
-    ?DO_DEBUG(AppId, CallId, notice, Text, List),
-    case AppId:config_log_level() >= 6 of
-        true -> ?DO_LOG(notice, AppId:name(), CallId, Text, List);
+-define(notice(SrvId, CallId, Text, List), 
+    ?DO_DEBUG(SrvId, CallId, notice, Text, List),
+    case SrvId:cache_log_level() >= 6 of
+        true -> ?DO_LOG(notice, SrvId:name(), CallId, Text, List);
         false -> ok
     end).
 
--define(warning(AppId, CallId, Text, List), 
-    ?DO_DEBUG(AppId, CallId, warning, Text, List),
-    case AppId:config_log_level() >= 5 of
-        true -> ?DO_LOG(warning, AppId:name(), CallId, Text, List);
+-define(warning(SrvId, CallId, Text, List), 
+    ?DO_DEBUG(SrvId, CallId, warning, Text, List),
+    case SrvId:cache_log_level() >= 5 of
+        true -> ?DO_LOG(warning, SrvId:name(), CallId, Text, List);
         false -> ok
     end).
 
--define(error(AppId, CallId, Text, List), 
-    ?DO_DEBUG(AppId, CallId, error, Text, List),
-    case AppId:config_log_level() >= 4 of
-        true -> ?DO_LOG(error, AppId:name(), CallId, Text, List);
+-define(error(SrvId, CallId, Text, List), 
+    ?DO_DEBUG(SrvId, CallId, error, Text, List),
+    case SrvId:cache_log_level() >= 4 of
+        true -> ?DO_LOG(error, SrvId:name(), CallId, Text, List);
         false -> ok
     end).
 
 
--define(N(T), lager:notice(T)).
--define(N(T,P), lager:notice(T,P)).
--define(W(T), lager:warning(T)).
--define(W(T,P), lager:warning(T,P)).
--define(E(T), lager:error(T)).
--define(E(T,P), lager:error(T,P)).
 
 -include_lib("kernel/include/inet_sctp.hrl").
-
-
-%% ===================================================================
-%% Types
-%% ===================================================================
-
--type from() :: term().
-
--type gen_server_time() :: 
-        non_neg_integer() | hibernate.
-
--type gen_server_init(State) ::
-        {ok, State} | {ok, State, gen_server_time()} | ignore.
-
--type gen_server_cast(State) :: 
-        {noreply, State} | {noreply, State, gen_server_time()} |
-        {stop, term(), State}.
-
--type gen_server_info(State) :: 
-        gen_server_cast(State).
-
--type gen_server_call(State) :: 
-        {reply, term(), State} | {reply, term(), State, gen_server_time()} |
-        {stop, term(), term(), State} | gen_server_cast(State).
-
--type gen_server_code_change(State) ::
-        {ok, State}.
-
--type gen_server_terminate() ::
-        ok.
 
 
 
@@ -126,31 +90,11 @@
 %% ===================================================================
 
 
--record(sipapp_srv, {
-    app_id :: nksip:app_id(),
-    args :: term(),
-    sipapp_state :: term(),
-    meta :: list()
-}).
-
-
--record(transport, {
-    proto = udp :: nksip:protocol(),
-    local_ip :: inet:ip_address(),
-    local_port :: inet:port_number(),
-    remote_ip :: inet:ip_address(),
-    remote_port :: inet:port_number(),
-    listen_ip :: inet:ip_address(),         % Ip this transport must report as listening
-    listen_port :: inet:port_number(),
-    sctp_id :: integer(),
-    resource = <<>> :: binary()      
-}).
-
 
 -record(sipmsg, {
     id :: nksip_sipmsg:id(),
     class :: {req, nksip:method()} | {resp, nksip:sip_code(), binary()},
-    app_id :: nksip:app_id(),
+    srv_id :: nkservice:service_id(),
     dialog_id :: nksip_dialog_lib:id(),
     ruri :: nksip:uri(),
     vias = [] :: [nksip:via()],
@@ -169,8 +113,8 @@
     headers = [] :: [nksip:header()],
     body = <<>> :: nksip:body(),
     to_tag_candidate = <<>> :: nksip:tag(),
-    transport :: nksip_transport:transport(),
-    start :: nksip_lib:l_timestamp(),
+    nkport :: nkpacket:nkport(),
+    start :: nklib_util:l_timestamp(),
     meta = [] :: nksip:optslist()   % No current use
 }).
 
@@ -182,22 +126,8 @@
     opts = [] :: nksip:optslist()
 }).
 
--record(uri, {
-    disp = <<>> :: binary(),
-    scheme = sip :: nksip:scheme(),
-    user = <<>> :: binary(), 
-    pass = <<>> :: binary(), 
-    domain = <<"invalid.invalid">> :: binary(), 
-    port = 0 :: inet:port_number(),             % 0 means "no port in message"
-    path = <<>> :: binary(),
-    opts = [] :: nksip:optslist(),
-    headers = [] :: [binary()|nksip:header()],
-    ext_opts = [] :: nksip:optslist(),
-    ext_headers = [] :: [binary()|nksip:header()]
-}).
-
 -record(via, {
-    proto = udp :: nksip:protocol(),
+    transp = udp :: nkpacket:transport(),
     domain = <<"invalid.invalid">> :: binary(),
     port = 0 :: inet:port_number(),
     opts = [] :: nksip:optslist()
@@ -206,7 +136,7 @@
 
 -record(invite, {
     status :: nksip_dialog:invite_status(),
-    answered :: nksip_lib:timestamp(),
+    answered :: nklib_util:timestamp(),
     class :: uac | uas | proxy,
     request :: nksip:request(),
     response :: nksip:response(),
@@ -228,7 +158,7 @@
     expires :: pos_integer(),
     status :: nksip_subscription:status(),
     class :: uac | uas,
-    answered :: nksip_lib:timestamp(),
+    answered :: nklib_util:timestamp(),
     timer_n :: reference(),
     timer_expire :: reference(),
     timer_middle :: reference(),
@@ -241,10 +171,10 @@
 
 -record(dialog, {
     id :: nksip_dialog_lib:id(),
-    app_id :: nksip:app_id(),
+    srv_id :: nkservice:service_id(),
     call_id :: nksip:call_id(),
-    created :: nksip_lib:timestamp(),
-    updated :: nksip_lib:timestamp(),
+    created :: nklib_util:timestamp(),
+    updated :: nklib_util:timestamp(),
     local_seq :: 0 | nksip:cseq(),
     remote_seq :: 0 | nksip:cseq(),
     local_uri :: nksip:uri(),
@@ -320,13 +250,13 @@
     erlang:put(debug_timer, tl(erlang:get(debug_timer)))).
 -endif.
 
--ifndef(P).
--define(P(S,P), io:format(S++"\n", P)).
--define(P(S), ?P(S, [])).
--endif.
+% -ifndef(P).
+% -define(P(S,P), io:format(S++"\n", P)).
+% -define(P(S), ?P(S, [])).
+% -endif.
 
--ifndef(I).
--define(I(S,P), lager:info(S++"\n", P)).
--define(I(S), ?I(S, [])).
--endif.
+% -ifndef(I).
+% -define(I(S,P), lager:info(S++"\n", P)).
+% -define(I(S), ?I(S, [])).
+% -endif.
 

@@ -3,7 +3,7 @@
 %%
 %% nksip_call.hrl: SIP call processing types
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,12 +26,12 @@
 
 
 -define(DO_CALL_LOG(Level, Text, List), 
-    ?DO_LOG(Level, erlang:get(nksip_app_name), erlang:get(nksip_call_id), Text, List)).
+    ?DO_LOG(Level, erlang:get(nksip_srv_name), erlang:get(nksip_call_id), Text, List)).
 
 -define(DO_DEBUG(Level, Text, List),
-    (erlang:get(nksip_app_id)):nkcb_debug(erlang:get(nksip_app_id), 
-                                          erlang:get(nksip_call_id),
-                                          {Level, Text, List})).
+    (erlang:get(nksip_srv_id)):nks_sip_debug(erlang:get(nksip_srv_id), 
+                                             erlang:get(nksip_call_id),
+                                             {Level, Text, List})).
 
 
 
@@ -85,14 +85,14 @@
     id :: nksip_call:trans_id(),
     class :: uac | uas,
     status :: nksip_call_uac:status() | nksip_call_uas:status(),
-    start :: nksip_lib:timestamp(),
-    from :: none | {srv, from()} | {fork, nksip_call_fork:id()},
+    start :: nklib_util:timestamp(),
+    from :: none | {srv, {pid(), term()}} | {fork, nksip_call_fork:id()},
     opts :: nksip:optslist(),
     trans_id :: integer(),
     request :: nksip:request(),
     method :: nksip:method(),
     ruri :: nksip:uri(),
-    proto :: nksip:protocol(),
+    transp :: nkpacket:transport(),
     response :: nksip:response(),
     code :: 0 | nksip:sip_code(),
     to_tags = [] :: [nksip:tag()],
@@ -112,7 +112,7 @@
 -record(fork, {
     id :: nksip_call_fork:id(),
     class :: uac | uas,
-    start :: nksip_lib:timestamp(),
+    start :: nklib_util:timestamp(),
     request :: nksip:request(),
     method :: nksip:method(),
     opts :: nksip:optslist(),
@@ -133,7 +133,7 @@
 
 -type call_auth() :: {
     nksip_dialog_lib:id(), 
-    nksip:protocol(), 
+    nkpacket:nkport(), 
     inet:ip_address(), 
     inet:port_number()
 }.
@@ -160,7 +160,7 @@
 %% - nksip_min_se: Pre-dialog received MinSE header
 
 -record(call, {
-    app_id :: nksip:app_id(),
+    srv_id :: nkservice:service_id(),
     call_id :: nksip:call_id(),
     hibernate :: atom(),
     next :: integer(),

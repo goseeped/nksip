@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -26,6 +26,7 @@
 
 -import(nksip_call_lib, [update/2]).
 
+-include_lib("nklib/include/nklib.hrl").
 -include("nksip.hrl").
 -include("nksip_call.hrl").
 
@@ -46,15 +47,15 @@ launch(UAS, Call) ->
 -spec send_100(nksip_call:trans(), nksip_call:call()) ->
     nksip_call:call().
 
-send_100(UAS, #call{app_id=AppId}=Call) ->
+send_100(UAS, #call{srv_id=SrvId}=Call) ->
     #trans{id=Id, method=Method, request=Req} = UAS,
-    case Method=='INVITE' andalso (not AppId:config_no_100()) of 
+    case Method=='INVITE' andalso (not SrvId:cache_sip_no_100()) of 
         true ->
             {Resp, SendOpts} = nksip_reply:reply(Req, 100),
             case nksip_call_uas_transp:send_response(Resp, SendOpts) of
                 {ok, _} -> 
                     check_cancel(UAS, Call);
-                error ->
+                {error, _} ->
                     ?call_notice("UAS ~p ~p could not send '100' response", [Id, Method]),
                     nksip_call_uas:do_reply(service_unavailable, UAS, Call)
             end;
@@ -67,13 +68,13 @@ send_100(UAS, #call{app_id=AppId}=Call) ->
 -spec check_cancel(nksip_call:trans(), nksip_call:call()) ->
     nksip_call:call().
 
-check_cancel(#trans{id=Id}=UAS, #call{app_id=AppId}=Call) ->
+check_cancel(#trans{id=Id}=UAS, #call{srv_id=SrvId}=Call) ->
     case is_cancel(UAS, Call) of
         {true, #trans{status=invite_proceeding, id=InvId, from=From}=InvUAS} ->
             ?call_debug("UAS ~p matched 'CANCEL' as ~p", [Id, InvId]),
             Call1 = nksip_call_uas:do_reply(ok, UAS, Call), 
             Args = [InvUAS#trans.request, UAS#trans.request, Call1],
-            AppId:nkcb_call(sip_cancel, Args, AppId),
+            SrvId:nks_sip_call(sip_cancel, Args, SrvId),
             case From of
                 {fork, ForkId} -> 
                     % We do not cancel our UAS request, we send it to the fork
@@ -100,10 +101,10 @@ is_cancel(#trans{method='CANCEL', request=CancelReq}, #call{trans=Trans}) ->
     ReqTransId = nksip_call_lib:uas_transaction_id(TransReq),
     case lists:keyfind(ReqTransId, #trans.trans_id, Trans) of
         #trans{id=Id, class=uas, request=#sipmsg{}=InvReq} = InvUAS ->
-            #sipmsg{transport=#transport{remote_ip=CancelIp, remote_port=CancelPort}} =
-                CancelReq,
-            #sipmsg{transport=#transport{remote_ip=InvIp, remote_port=InvPort}} =
-                InvReq,
+            #sipmsg{nkport=CancelNkPort} = CancelReq,
+            {ok, {_, _, CancelIp, CancelPort}} = nkpacket:get_remote(CancelNkPort),
+            #sipmsg{nkport=InvNkPort} = InvReq,
+            {ok, {_, _, InvIp, InvPort}} = nkpacket:get_remote(InvNkPort),
             if
                 CancelIp==InvIp, CancelPort==InvPort ->
                     {true, InvUAS};
@@ -126,18 +127,18 @@ is_cancel(_, _) ->
 -spec authorize_launch(nksip_call:trans(), nksip_call:call()) ->
     nksip_call:call().
 
-authorize_launch(UAS, #call{app_id=AppId}=Call) ->
+authorize_launch(UAS, #call{srv_id=SrvId}=Call) ->
     % In case app has not implemented sip_authorize, we don't spend time
     % finding authentication info
-    case erlang:function_exported(AppId:module(), sip_authorize, 3) of
+    case erlang:function_exported(SrvId:callback(), sip_authorize, 3) of
         true ->
-            {ok, AuthData} = AppId:nkcb_authorize_data([], UAS, Call),
+            {ok, AuthData} = SrvId:nks_sip_authorize_data([], UAS, Call),
             Args = [AuthData, UAS#trans.request, Call],
-            case AppId:nkcb_call(sip_authorize, Args, AppId) of
+            case SrvId:nks_sip_call(sip_authorize, Args, SrvId) of
                 {ok, Reply} -> 
                     authorize_reply(Reply, UAS, Call);
                 error ->
-                    nksip_call_uas:do_reply({internal_error, "SipApp Error"}, UAS, Call)
+                    nksip_call_uas:do_reply({internal_error, "Service Error"}, UAS, Call)
             end;    
         false ->
             authorize_reply(ok, UAS, Call)
@@ -173,7 +174,7 @@ authorize_reply(Reply, UAS, Call) ->
             nksip_call_uas:do_reply({proxy_authenticate, Realm}, UAS, Call);
         Other -> 
             ?call_warning("Invalid response calling authenticate/2: ~p", [Other]),
-            nksip_call_uas:do_reply({internal_error, "SipApp Response"}, UAS, Call)
+            nksip_call_uas:do_reply({internal_error, "Service Response"}, UAS, Call)
     end.
 
 
@@ -181,14 +182,14 @@ authorize_reply(Reply, UAS, Call) ->
 -spec route_launch(nksip_call:trans(), nksip_call:call()) -> 
     nksip_call:call().
 
-route_launch(#trans{ruri=RUri}=UAS, #call{app_id=AppId}=Call) ->
+route_launch(#trans{ruri=RUri}=UAS, #call{srv_id=SrvId}=Call) ->
     #uri{scheme=Scheme, user=User, domain=Domain} = RUri,
     Args = [Scheme, User, Domain, UAS#trans.request, Call],
-    case AppId:nkcb_call(sip_route, Args, AppId) of
+    case SrvId:nks_sip_call(sip_route, Args, SrvId) of
         {ok, Reply} -> 
             route_reply(Reply, UAS, Call);
         error -> 
-            nksip_call_uas:do_reply({internal_error, "SipApp Error"}, UAS, Call)
+            nksip_call_uas:do_reply({internal_error, "Service Error"}, UAS, Call)
     end.
     
 
@@ -216,7 +217,7 @@ route_reply(Reply, UAS, Call) ->
         {strict_proxy, Opts} -> {strict_proxy, Opts};
         Invalid -> 
             ?call_warning("Invalid reply from route/5 callback: ~p", [Invalid]),
-            {reply_stateless, {internal_error, "Invalid SipApp Reply"}}
+            {reply_stateless, {internal_error, "Invalid Service Reply"}}
     end,
     do_route(Route, UAS, Call).
 
@@ -252,7 +253,7 @@ do_route(process_stateless, #trans{method='CANCEL'}=UAS, Call) ->
 do_route(process_stateless, #trans{method='INVITE'}=UAS, Call) ->
     ?call_warning("Invalid response 'process_stateless' for INVITE request "
                   " in route/5 callback", []),
-    nksip_call_uas:do_reply({internal_error, "Invalid SipApp Response"}, UAS, Call);
+    nksip_call_uas:do_reply({internal_error, "Invalid Service Response"}, UAS, Call);
 
 do_route(process_stateless, UAS, Call) ->
     UAS1 = UAS#trans{stateless=true},

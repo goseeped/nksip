@@ -24,18 +24,18 @@ None
 
 ## Configuration Values
 
-### SipApp configuration values
+### Service configuration values
 
 Option|Default|Description
 ---|---|---
-nksip_event_compositor_default_expires|60 (secs)|Default expiration for stored events
+sip_event_compositor_default_expires|60 (secs)|Default expiration for stored events
 
 ## API functions
 
 ### find/3
 
 ```erlang
-find(App::nksip:app_id()|term(), AOR::nksip:aor(), Tag::binary()) ->
+find(App::nksip:srv_id()|term(), AOR::nksip:aor(), Tag::binary()) ->
     {ok, #reg_publish{}} | not_found | {error, term()}.
 ```
 
@@ -73,18 +73,18 @@ sip_publish(Req, _Call) ->
 ### clear/1
 
 ```erlang
-clear(nksip:app_name()|nksip:app_id()) -> 
-    ok | callback_error | sipapp_not_found.
+clear(nksip:srv_name()|nksip:srv_id()) -> 
+    ok | callback_error | service_not_found.
 ```
 
-Clear all stored records by a SipApp.
+Clear all stored records by a Service.
 
 
 
 
 ## Callback functions
 
-You can implement any of these callback functions in your SipApp callback module.
+You can implement any of these callback functions in your Service callback module.
 
 ### sip_event_compositor_store/2
 
@@ -93,7 +93,7 @@ sip_event_compositor_store(StoreOp, AppId) ->
     [RegPublish] | ok | not_found when
         StoreOp :: {get, AOR, Tag} | {put, AOR, Tag, RegPublish, TTL} | 
                    {del, AOR, Tag} | del_all,
-        AppId :: nksip:app_id(),
+        AppId :: nksip:srv_id(),
         AOR :: nksip:aor(),
         Tag :: binary(),
         RegPublish :: nksip_event_compositor:reg_publish(),
@@ -111,7 +111,7 @@ Op|Response|Comments
 {del, AOR, Tag}|ok &#124; not_found|Delete stored information for this `AOR`, `AppId` and `Tag`, returning `ok` or `not_found` if it is not found.
 del_all|ok|Delete all stored information for this `AppId`.
 
-See the [default implementation](../../plugins/src/nksip_event_compositor_sipapp.erl) as a basis. 
+See the [default implementation](../../plugins/src/nksip_event_compositor_callbacks.erl) as a basis. 
 
 
 ## Examples
@@ -124,18 +124,18 @@ See the [default implementation](../../plugins/src/nksip_event_compositor_sipapp
 -compile([export_all]).
 
 start() ->
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "sip:client1@nksip"},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]}
+    {ok, _} = nksip:start(client1, [
+        {sip_from, "sip:client1@nksip"},
+        {sip_local_host, "localhost"},
+        {transports, "sip:all:5060, sips:all:5061"}
     ]),
-    {ok, _} = nksip:start(server, ?MODULE, [], [
-        {from, "sip:server@nksip"},
-        no_100,
+    {ok, _} = nksip:start(server, [
+        {sip_from, "sip:server@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_no_100, true},
+        {sip_events, "nkpublish"}
         {plugins, [nksip_event_compositor]},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]},
-        {events, "nkpublish"}
+        {transports, "sip:all:5070, sips:all:5071"}
     ]).
 
 

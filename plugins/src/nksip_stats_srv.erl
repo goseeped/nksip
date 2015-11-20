@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,7 +22,7 @@
 -behaviour(gen_server).
 
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
--export([start_link/0, init/1, terminate/2, code_change/3, handle_call/3, 
+-export([start_link/1, init/1, terminate/2, code_change/3, handle_call/3, 
          handle_cast/2, handle_info/2]).
 
 -include("../include/nksip.hrl").
@@ -35,34 +35,35 @@
 -record(state, {
     last_uas :: {Min::integer(), Max::integer(), Avg::integer(), Std::integer()},
     avg_uas_values :: [integer()],
-    last_check :: nksip_lib:timestamp(),
+    last_check :: nklib_util:timestamp(),
     period :: integer()
 }).
 
 
 %% @private
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+start_link(Period) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Period], []).
         
 
 %% @private 
 -spec init(term()) ->
-    gen_server_init(#state{}).
+    {ok, #state{}}.
 
-init([]) ->
-    Now = nksip_lib:timestamp(),
+init([Period]) ->
+    Now = nklib_util:timestamp(),
     State = #state{
         last_uas = {0,0,0,0}, 
         avg_uas_values = [], 
         last_check = Now,
-        period = nksip_config:get(nksip_stats_period, 5)
+        period = Period
     },
     {ok, State}.
 
 
 %% @private
--spec handle_call(term(), from(), #state{}) ->
-    gen_server_call(#state{}).
+-spec handle_call(term(), {pid(), term()}, #state{}) ->
+    {reply, term(), #state{}} | {noreply, #state{}}.
+
 
 handle_call(get_uas_avg, _From, #state{last_uas=LastUas}=State) ->
     {reply, LastUas, State, timeout(State)};
@@ -74,7 +75,7 @@ handle_call(Msg, _From, State) ->
 
 %% @private
 -spec handle_cast(term(), #state{}) ->
-    gen_server_cast(#state{}).
+    {noreply, #state{}}.
 
 handle_cast({response_time, Time}, #state{avg_uas_values=Values}=State) ->
     State1 = State#state{avg_uas_values=[Time|Values]},
@@ -87,11 +88,11 @@ handle_cast(Msg, State) ->
 
 %% @private
 -spec handle_info(term(), #state{}) ->
-    gen_server_info(#state{}).
+    {noreply, #state{}}.
 
 handle_info(timeout, #state{avg_uas_values=Values, period=Period}=State) ->
     LastUas = calculate(Values),
-    Now = nksip_lib:timestamp(),
+    Now = nklib_util:timestamp(),
     State1 = State#state{last_uas=LastUas, avg_uas_values=[], last_check=Now}, 
     {noreply, State1, 1000*Period};
 
@@ -102,7 +103,7 @@ handle_info(Info, State) ->
 
 %% @private
 -spec code_change(term(), #state{}, term()) ->
-    gen_server_code_change(#state{}).
+    {ok, #state{}}.
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -110,8 +111,8 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% @private
 -spec terminate(term(), #state{}) ->
-    gen_server_terminate().
-
+    ok.
+    
 terminate(_Reason, _State) ->  
     ok.
 
@@ -124,7 +125,7 @@ terminate(_Reason, _State) ->
 
 %% @private
 timeout(#state{last_check=Last, period=Period}) ->
-    case (Last+Period) - nksip_lib:timestamp() of
+    case (Last+Period) - nklib_util:timestamp() of
         Time when Time > 0 -> 1000*Time;
         _ -> 0
     end.

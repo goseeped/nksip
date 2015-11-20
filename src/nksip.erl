@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,23 +18,25 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc SipApps management module.
+%% @doc Services management module.
 
 -module(nksip).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
--export([start/4, stop/1, stop_all/0, get_all/0, update/2]).
--export([get/2, get/3, put/3, del/2]).
--export([get_pid/1, find_app_id/1, call/3, call/2, cast/2, config/1]).
--export([get_uuid/1]).
+-export([start/2, stop/1, stop_all/0, update/2]).
+-export([get_config/1, get_uuid/1]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
+-export([plugin_update_value/3]).
 
+-include_lib("nklib/include/nklib.hrl").
 -include("nksip.hrl").
+-include("nksip_call.hrl").
 
--export_type([app_name/0, app_id/0, handle/0]).
+-export_type([srv_id/0, srv_name/0, handle/0]).
 -export_type([request/0, response/0, sipreply/0, optslist/0]).
--export_type([call/0, transport/0, uri/0, user_uri/0]).
+-export_type([call/0, uri/0, user_uri/0]).
 -export_type([header/0, header_name/0, header_value/0]).
--export_type([scheme/0, protocol/0, method/0, sip_code/0, via/0]).
+-export_type([scheme/0, method/0, sip_code/0, via/0]).
 -export_type([call_id/0, cseq/0, tag/0, body/0, uri_set/0, aor/0]).
 -export_type([dialog/0, invite/0, subscription/0, token/0, error_reason/0]).
 
@@ -44,11 +46,11 @@
 %% Types
 %% ===================================================================
 
-%% User Name of each started SipApp
--type app_name() :: term().
+%% User Name of each started Service
+-type srv_name() :: nkservice:name().
 
-%% Interna Name of each started SipApp
--type app_id() :: atom().
+%% Interna Name of each started Service
+-type srv_id() :: nksip:srv_id().
 
 %% External handle for a request, response, dialog or event
 %% It is a binary starting with:
@@ -71,10 +73,7 @@
 -type sipreply() :: nksip_reply:sipreply().
 
 %% Generic options list
--type optslist() :: nksip_lib:optslist().
-
-%% Transport
--type transport() :: #transport{}.
+-type optslist() :: nksip_util:optslist().
 
 %% Parsed SIP Uri
 -type uri() :: #uri{}.
@@ -98,8 +97,6 @@
 %% SIP Generic Header
 -type header() :: {header_name(), header_value()}.
 
-%% Recognized transport schemes
--type protocol() :: udp | tcp | tls | sctp | ws | wss | binary().
 
 %% Recognized SIP schemes
 -type scheme() :: sip | sips | tel | mailto | binary().
@@ -153,218 +150,149 @@
 -type value() :: binary() | string() | atom() | integer().
 
 
+
 %% ===================================================================
 %% Public functions
 %% ===================================================================
 
-%% @doc Starts a new SipApp.
--spec start(app_name(), atom(), term(), optslist()) -> 
-	{ok, app_id()} | {error, term()}.
+%% @doc Starts a new Service.
+-spec start(srv_name(), optslist()) -> 
+	{ok, srv_id()} | {error, term()}.
 
-start(AppName, Module, Args, Opts) ->
-    case get_pid(AppName) of
-        undefined ->
-            Opts1 = [{name, AppName}, {module, Module}|Opts],
-            case nksip_sipapp_config:start(Opts1) of
-                {ok, AppId} ->
-                    case nksip_sup:start_sipapp(AppId, Args) of
-                        ok -> {ok, AppId};
-                        {error, Error} -> {error, Error}
-                    end;
-                {error, Error} ->
-                    {error, Error}
-            end;
-        _ ->
-            {error, already_started}
-    end.
+start(Name, Opts) ->
+    Opts1 = nklib_util:to_map(Opts),
+    Opts2 = Opts1#{
+        class => nksip,
+        plugins => [nksip|maps:get(plugins, Opts1, [])],
+        transports => maps:get(transports, Opts1, "sip:all")
+    },
+    nkservice_server:start(Name, Opts2).
 
 
-%% @doc Stops a started SipApp, stopping any registered transports.
--spec stop(app_name()|app_id()) -> 
-    ok | {error, not_found}.
+%% @doc Stops a started Service, stopping any registered transports.
+-spec stop(srv_name()|srv_id()) -> 
+    ok | {error, service_not_found}.
 
-stop(App) ->
-    case find_app_id(App) of
-        {ok, AppId} ->
-            case nksip_sup:stop_sipapp(AppId) of
-                ok -> 
-                    ok;
-                error -> 
-                    {error, not_found}
-            end;
-        _ ->
-            {error, not_found}
-    end.
+stop(Srv) ->
+    nkservice_server:stop(Srv).
 
 
-%% @doc Stops all started SipApps.
+%% @doc Stops all started Services.
 -spec stop_all() -> 
     ok.
 
 stop_all() ->
-    lists:foreach(fun({_, AppId}) -> stop(AppId) end, get_all()).
+    lists:foreach(
+        fun({SrvId, _, _}) -> stop(SrvId) end, 
+        nkservice_server:get_all(nksip)).
 
 
-%% @doc Updates the callback module or options of a running SipApp.
+%% @doc Updates the callback module or options of a running Service.
 %% It is not allowed to change transports
--spec update(app_name()|app_id(), optslist()) ->
-    {ok, app_id()} | {error, term()}.
+-spec update(srv_name()|srv_id(), optslist()) ->
+    {ok, srv_id()} | {error, term()}.
 
-update(App, Opts) ->
-    case find_app_id(App) of
-        {ok, AppId} -> 
-            nksip_sipapp_config:update(AppId, Opts);
-        not_found ->
-            {error, not_found}
-    end.
+update(Srv, Opts) ->
+    Opts1 = nklib_util:to_map(Opts),
+    Opts2 = case Opts1 of
+        #{plugins:=Plugins} ->
+            Opts1#{plugins=>[nksip|Plugins]};
+        _ ->
+            Opts1
+    end,
+    nkservice_server:update(Srv, Opts2).
 
     
 
-%% @doc Gets the user and internal ids of all started SipApps.
--spec get_all() ->
-    [{AppName::term(), AppId::app_id()}].
+%% @doc Gets service's UUID
+-spec get_uuid(nkservice:name()|nksip:srv_id()) -> 
+    binary().
 
-get_all() ->
-    [{AppId:name(), AppId} 
-      || {AppId, _Pid} <- nksip_proc:values(nksip_sipapps)].
-
-
-%% @doc Gets a value from SipApp's store
--spec get(nksip:app_name()|nksip:app_id(), term()) ->
-    {ok, term()} | undefined | {error, term()}.
-
-get(App, Key) ->
-    case find_app_id(App) of
-        {ok, AppId} -> nksip_sipapp_srv:get(AppId, Key);
-        not_found -> {error, not_found}
+get_uuid(Srv) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            UUID = SrvId:uuid(),
+            <<"<urn:uuid:", UUID/binary, ">">>;
+        not_found ->
+            error(service_not_found)
     end.
 
 
-%% @doc Gets a value from SipApp's store, using a default if not found
--spec get(nksip:app_name()|nksip:app_id(), term(), term()) ->
-    {ok, term()} | {error, term()}.
+%% @doc Gets service's config
+-spec get_config(nkservice:name()|nksip:srv_id()) -> 
+    map().
 
-get(AppId, Key, Default) ->
-    case get(AppId, Key) of
-        undefined -> {ok, Default};
-        {ok, Value} -> {ok, Value};
-        {error, Error} -> {error, Error}
+get_config(SrvName) ->
+    nkservice_server:get_cache(SrvName, config_sip).
+
+
+%% ===================================================================
+%% Pugin functions
+%% ===================================================================
+
+
+version() ->
+    {ok, Vsn} = application:get_key(nksip, vsn),
+    Vsn.
+
+
+deps() ->
+    [].
+
+
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    try
+        Syntax = nksip_syntax:syntax(),
+        Defaults = nklib_util:to_map(nksip_config_cache:sip_defaults()),
+        SrvSpec2 = case nkservice_util:parse_syntax(SrvSpec, Syntax, Defaults) of
+            {ok, Parsed2} -> Parsed2;
+            {error, Parse2Error} -> throw(Parse2Error)
+        end,
+        Transp1 = case SrvSpec of
+            #{transports:=Transp0} ->
+                Transp0;
+            _ ->
+                [{[{nksip_protocol, udp, {0,0,0,0}, 5060}], #{}}]
+        end,
+        Transp2 = nksip_util:adapt_transports(SrvId, Transp1, SrvSpec2),
+        Timers = #call_timers{
+            t1 = maps:get(sip_timer_t1, SrvSpec2),
+            t2 = maps:get(sip_timer_t2, SrvSpec2),
+            t4 = maps:get(sip_timer_t4, SrvSpec2),
+            tc = maps:get(sip_timer_c, SrvSpec2),
+            trans = maps:get(sip_trans_timeout, SrvSpec2),
+            dialog = maps:get(sip_dialog_timeout, SrvSpec2)},
+        OldCache = maps:get(cache, SrvSpec, #{}),
+        Cache1 = maps:with(nksip_syntax:cached(), SrvSpec2),
+        Cache2 = Cache1#{sip_times=>Timers},
+        lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+        {ok, SrvSpec2#{cache=>maps:merge(OldCache, Cache2), transports=>Transp2}}
+    catch
+        throw:Throw -> {stop, Throw}
     end.
 
 
-%% @doc Inserts a value in SipApp's store
--spec put(nksip:app_name()|nksip:app_id(), term(), term()) ->
-    ok | {error, term()}.
-
-put(App, Key, Value) ->
-    case find_app_id(App) of
-        {ok, AppId} -> nksip_sipapp_srv:put(AppId, Key, Value);
-        not_found -> {error, not_found}
-    end.
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    Syntax = nksip_syntax:syntax(),
+    SrvSpec2 = maps:without(maps:keys(Syntax), SrvSpec),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
 
-%% @doc Deletes a value from SipApp's store
--spec del(nksip:app_name()|nksip:app_id(), term()) ->
-    ok | {error, term()}.
-
-del(App, Key) ->
-    case find_app_id(App) of
-        {ok, AppId} -> nksip_sipapp_srv:del(AppId, Key);
-        not_found -> {error, not_found}
-    end.
+%% ===================================================================
+%% Internal
+%% ===================================================================
 
 
-%% @doc Gets the SipApp's gen_server process pid().
--spec get_pid(app_name()|app_id()) -> 
-    pid() | undefined.
-
-get_pid(App) ->
-    case find_app_id(App) of
-        {ok, AppId} -> whereis(AppId);
-        _ -> undefined
-    end.
-
-
-%% @doc Synchronous call to the SipApp's gen_server process
--spec call(app_name()|app_id(), term()) ->
-    term().
-
-call(App, Term) ->
-    call(App, Term, default).
-
-
-%% @doc Synchronous call to the SipApp's gen_server process with a timeout
--spec call(app_name()|app_id(), term(), pos_integer()|infinity|default) ->
-    term().
-
-call(App, Term, Time) ->
-    case find_app_id(App) of
-        {ok, AppId} -> 
-            Time1 = case Time of 
-                default -> nksip_config_cache:sync_call_time();
-                _ -> Time
-            end,
-            gen_server:call(AppId, Term, Time1);
-        not_found -> 
-            error(sipapp_not_found)
-    end.
-
-
-%% @doc Asynchronous call to the SipApp's gen_server process
--spec cast(app_name()|app_id(), term()) ->
-    term().
-
-cast(App, Term) ->
-    case find_app_id(App) of
-        {ok, AppId} -> gen_server:cast(AppId, Term);
-        not_found -> error(sipapp_not_found)
-    end.
-
-
-%% @doc Gets the internal name of an existing SipApp
--spec find_app_id(term()) ->
-    {ok, app_id()} | not_found.
-
-find_app_id(App) when is_atom(App) ->
-    case erlang:function_exported(App, config_local_host, 0) of
-        true ->
-            {ok, App};
-        false ->
-            case nksip_proc:values({nksip_sipapp_name, App}) of
-                [] -> not_found;
-                [{AppId, _}] -> {ok, AppId}
-            end
-    end;
-
-find_app_id(App) ->
-    case nksip_proc:values({nksip_sipapp_name, App}) of
-        [] -> not_found;
-        [{AppId, _}] -> {ok, AppId}
-    end.
-
-
-%% @doc Gets current SipApp configuration
--spec config(app_name()|app_id()) ->
-    nksip:optslist().
-
-config(App) ->
-    case find_app_id(App) of
-        {ok, AppId} -> AppId:config();
-        not_found -> error(sipapp_not_found)
-    end.
-
-
-%% @doc Gets SipApp's UUID
--spec get_uuid(nksip:app_name()|nksip:app_id()) -> 
-    {ok, binary()} | {error, term()}.
-
-get_uuid(App) ->
-    case find_app_id(App) of
-        {ok, AppId} -> 
-            UUID = AppId:uuid(),
-            {ok, <<"<urn:uuid:", UUID/binary, ">">>};
-        not_found -> 
-            {error, not_found}
-    end.
-
+%% @private
+plugin_update_value(Key, Fun, SrvSpec) ->
+    Value1 = maps:get(Key, SrvSpec, undefined),
+    Value2 = Fun(Value1),
+    SrvSpec2 = maps:put(Key, Value2, SrvSpec),
+    OldCache = maps:get(cache, SrvSpec, #{}),
+    Cache = case lists:member(Key, nksip_syntax:cached()) of
+        true -> maps:put(Key, Value2, #{});
+        false -> #{}
+    end,
+    SrvSpec2#{cache=>maps:merge(OldCache, Cache)}.
 

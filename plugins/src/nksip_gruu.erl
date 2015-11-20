@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,7 +25,7 @@
 -include("../include/nksip.hrl").
 
 -export([get_gruu_pub/1, get_gruu_temp/1, registrar_find/2]).
--export([version/0, deps/0, parse_config/1]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 
 
 %% ===================================================================
@@ -37,29 +37,30 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 %% If nksip_registrar is activated, it will update it
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    UpdFun = fun(Supported) -> nklib_util:store_value(<<"gruu">>, Supported) end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun, SrvSpec),
+    lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
-parse_config(Opts) ->
-    Supported = nksip_lib:get_value(supported, Opts),
-    Opts1 = case lists:member(<<"gruu">>, Supported) of
-        true -> Opts;
-        false -> nksip_lib:store_value(supported, Supported++[<<"gruu">>], Opts)
-    end,
-    {ok, Opts1}.
+
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    UpdFun = fun(Supported) -> Supported -- [<<"gruu">>] end,
+    SrvSpec2 = nksip:plugin_update_value(sip_supported, UpdFun, SrvSpec),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
 
 %% ===================================================================
@@ -68,13 +69,13 @@ parse_config(Opts) ->
 
 
 %% @doc Gets the last detected public GRUU
--spec get_gruu_pub(nksip:app_name()|nksip:app_id()) ->
+-spec get_gruu_pub(nkservice:name()|nksip:srv_id()) ->
     {ok, nksip:uri()} | undefined | {error, term()}.
 
-get_gruu_pub(App) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> 
-            case nksip_config:get({nksip_gruu_pub, AppId}) of
+get_gruu_pub(Srv) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            case nksip_app:get({nksip_gruu_pub, SrvId}) of
                 undefined -> undefined;
                 Value -> {ok, Value}
             end;
@@ -84,13 +85,13 @@ get_gruu_pub(App) ->
 
 
 %% @doc Gets the last detected temporary GRUU
--spec get_gruu_temp(nksip:app_name()|nksip:app_id()) ->
+-spec get_gruu_temp(nkservice:name()|nksip:srv_id()) ->
     {ok, nksip:uri()} | undefined | {error, term()}.
 
-get_gruu_temp(App) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> 
-            case nksip_config:get({nksip_gruu_temp, AppId}) of
+get_gruu_temp(Srv) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            case nksip_app:get({nksip_gruu_temp, SrvId}) of
                 undefined -> undefined;
                 Value -> {ok, Value}
             end;
@@ -100,13 +101,13 @@ get_gruu_temp(App) ->
 
 
 %% @doc Use this function instead of nksip_registrar:find/2,4 to decode the generated GRUUs.
--spec registrar_find(nksip:app_name()|nksip:app_id(), nksip:uri()) ->
+-spec registrar_find(nkservice:name()|nksip:srv_id(), nksip:uri()) ->
     [nksip:uri()].
 
-registrar_find(App, Uri) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> 
-            nksip_gruu_lib:find(AppId, Uri);
+registrar_find(Srv, Uri) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            nksip_gruu_lib:find(SrvId, Uri);
         _ ->
             []
     end.

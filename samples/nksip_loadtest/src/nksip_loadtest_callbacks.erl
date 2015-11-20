@@ -2,7 +2,7 @@
 %%
 %% Sipapp callback for high load tests
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -20,9 +20,9 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc SipApp callback module
+%% @doc Service callback module
 
--module(nksip_loadtest_sipapp).
+-module(nksip_loadtest_callbacks).
 
 -export([sip_route/5, sip_invite/2]).
 

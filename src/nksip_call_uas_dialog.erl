@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -444,7 +444,7 @@ do_response(_, _, _, _, Dialog, Call) ->
 
 update_response(Req, {Resp, Opts}, Call) ->
     #sipmsg{contacts=Contacts} = Resp,
-    #call{app_id=AppId} = Call,
+    #call{srv_id=SrvId} = Call,
     DialogId = nksip_dialog_lib:make_id(uas, Resp),
     {Resp1, Opts1} = case Contacts of
         [] ->
@@ -458,7 +458,7 @@ update_response(Req, {Resp, Opts}, Call) ->
         _ ->
             {Resp#sipmsg{dialog_id=DialogId}, Opts}
     end,
-    {ok, Resp2, Opts2} = AppId:nkcb_uas_dialog_response(Req, Resp1, Opts1, Call),
+    {ok, Resp2, Opts2} = SrvId:nks_sip_uas_dialog_response(Req, Resp1, Opts1, Call),
     {Resp2, Opts2}.
 
 

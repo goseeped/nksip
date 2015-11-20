@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -352,7 +352,7 @@ do_response('INVITE', Code, _Req, _Resp,
                     ?call_info("Dialog ~s (accepted_uac) retransmitting 'ACK'", 
                                [DialogId]),
                     store(Dialog, Call);
-                error ->
+                {error, _} ->
                     ?call_notice("Dialog ~s (accepted_uac) could not retransmit 'ACK'", 
                                  [DialogId]),
                     update({invite, {stop, 503}}, Dialog, Call)
@@ -490,11 +490,11 @@ make(DialogId, Method, Opts, #call{dialogs=Dialogs}=Call) ->
 
 
 %% @private
-do_make(Method, Opts, Dialog, #call{app_id=AppId}=Call) ->
+do_make(Method, Opts, Dialog, #call{srv_id=SrvId}=Call) ->
     {RUri, Opts1, Dialog1} = generate(Method, Opts, Dialog, Call),
     Call1 = store(Dialog1, Call),
     {continue, [_, RUri2, Opts2, Call2]} = 
-        AppId:nkcb_make_uac_dialog(Method, RUri, Opts1, Call1),
+        SrvId:nks_sip_make_uac_dialog(Method, RUri, Opts1, Call1),
     {ok, RUri2, Opts2, Call2}.
 
 
@@ -503,7 +503,7 @@ do_make(Method, Opts, Dialog, #call{app_id=AppId}=Call) ->
     {nksip:cseq(), nksip_call:call()}.
 
 new_local_seq(#sipmsg{dialog_id = <<>>}, Call) ->
-    {nksip_config:cseq(), Call};
+    {nksip_util:get_cseq(), Call};
 
 new_local_seq(#sipmsg{dialog_id=DialogId}, Call) ->
     case find(DialogId, Call) of
@@ -511,7 +511,7 @@ new_local_seq(#sipmsg{dialog_id=DialogId}, Call) ->
             Dialog1 = Dialog#dialog{local_seq=LocalSeq+1},
             {LocalSeq+1, store(Dialog1, Call)};
         not_found ->
-            {nksip_config:cseq(), Call}
+            {nksip_util:get_cseq(), Call}
     end.
 
 
@@ -578,14 +578,14 @@ generate(Method, Opts, Dialog, _Call) ->
         route_set = RouteSet,
         invite = Invite
     } = Dialog,
-    case nksip_lib:get_integer(cseq_num, Opts) of
+    case nklib_util:get_integer(cseq_num, Opts) of
         0 when Method == 'ACK' -> 
             #invite{request=#sipmsg{cseq={RCSeq, _}}} = Invite,
             LCSeq = CurrentCSeq;
         0 when CurrentCSeq > 0 -> 
             RCSeq = LCSeq = CurrentCSeq+1;
         0 -> 
-            RCSeq = LCSeq = nksip_config:cseq()+1000;
+            RCSeq = LCSeq = nksip_util:get_cseq()+1000;
         RCSeq when CurrentCSeq > 0 -> 
             LCSeq = CurrentCSeq;
         RCSeq -> 
@@ -595,7 +595,7 @@ generate(Method, Opts, Dialog, _Call) ->
         case Method of
             'ACK' ->
                 #invite{request=#sipmsg{headers=Headers}} = Invite,
-                Auths = nksip_lib:extract(Headers,
+                Auths = nklib_util:extract(Headers,
                                     [<<"authorization">>, <<"proxy-authorization">>]),
                 [{add, Auth} || Auth <-Auths];
             _ ->
@@ -612,7 +612,7 @@ generate(Method, Opts, Dialog, _Call) ->
                 true ->
                     ignore;
                 false ->
-                    case nksip_lib:get_value(contact, Opts, []) of
+                    case nklib_util:get_value(contact, Opts, []) of
                         [] -> {contact, LocalTarget};
                         _ -> ignore
                     end

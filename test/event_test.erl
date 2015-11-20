@@ -22,6 +22,7 @@
 
 -module(event_test).
 
+-include_lib("nklib/include/nklib.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/nksip.hrl").
 
@@ -44,21 +45,20 @@ event_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "sip:client1@nksip"},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]},
-        {event_expires_offset, 0},
-        {events, "myevent1,myevent2,myevent3"}
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "sip:client1@nksip"},
+        {sip_local_host, "localhost"},
+        {sip_event_expires_offset, 0},
+        {sip_events, "myevent1,myevent2,myevent3"}
     ]),
     
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "sip:client2@nksip"},
-        no_100,
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]},
-        {event_expires_offset, 0},
-        {events, "myevent4"}
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "127.0.0.1"},
+        {sip_event_expires_offset, 0},
+        {sip_events, "myevent4"},
+        {transports, ["<sip:all:5070>", "<sip:all:5071;transport=tls>"]}
     ]),
 
     tests_util:log(),
@@ -66,6 +66,7 @@ start() ->
 
 
 stop() ->
+    timer:sleep(1000),
     ok = nksip:stop(client1),
     ok = nksip:stop(client2).
 
@@ -266,7 +267,7 @@ dialog() ->
         {_, [<<"<sip:b1@127.0.0.1:5070;lr>">>,<<"<sip:b@b>">>,<<"<sip:a2@127.0.0.1;lr>">>]}
     ]} = nksip_dialog:metas([raw_local_target, raw_remote_target, raw_route_set], DialogA),
 
-    lager:notice("DB: ~p", [DialogB]),
+    % lager:notice("DB: ~p", [DialogB]),
 
     {ok, [
         {_, <<"<sip:b2@127.0.0.1:5070>">>},
@@ -483,18 +484,18 @@ sip_dialog_update(Update, Dialog, _Call) ->
 make_notify(Req) ->
     #sipmsg{from={From, FromTag}, to={To, _}, cseq={CSeq, _}, to_tag_candidate=ToTag} = Req,
     Req#sipmsg{
-        id = nksip_lib:uid(),
+        id = nklib_util:uid(),
         class = {req, 'NOTIFY'},
-        ruri = hd(nksip_parse:uris("sip:127.0.0.1")),
+        ruri = hd(nklib_parse:uris("sip:127.0.0.1")),
         vias = [],
         from = {To#uri{ext_opts=[{<<"tag">>, ToTag}]}, ToTag},
         to = {From, FromTag},
         cseq = {CSeq+1, 'NOTIFY'},
         routes = [],
-        contacts = nksip_parse:uris("sip:127.0.0.1:5070"),
+        contacts = nklib_parse:uris("sip:127.0.0.1:5070"),
         expires = 0,
         headers = [{<<"subscription-state">>, <<"active;expires=5">>}],
-        transport = undefined
+        nkport = undefined
     }.
 
 

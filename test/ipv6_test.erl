@@ -23,7 +23,9 @@
 -module(ipv6_test).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 -include("../include/nksip.hrl").
+-include_lib("nklib/include/nklib.hrl").
 
 -compile([export_all]).
 -define(RECV(T), receive T -> ok after 1000 -> error(recv) end).
@@ -60,34 +62,34 @@ start() ->
     %% NOTE: using 'any6' as ip for hosts fails in Linux
     %% (it works in OSX)
 
-    {ok, _} = nksip:start(server1, ?MODULE, server1, [
-        {from, "sip:server1@nksip"},
+    ok = tests_util:start(server1, ?MODULE, [
+        {sip_from, "sip:server1@nksip"},
+        {sip_local_host6, "::1"},
         {plugins, [nksip_registrar]},
-        {local_host6, "::1"},
-        {transports, [{udp, all, 5060}, {udp, "::1", 5060}]}
+        {transports, "sip:all:5060, sip:[::1]:5060"}
     ]),
 
-    {ok, _} = nksip:start(server2, ?MODULE, server2, [
-        {from, "sip:server2@nksip"},
-        {local_host, "127.0.0.1"},
-        {local_host6, "::1"},
-        {transports, [{udp, all, 5061}, {udp, "::1", 5061}]}
+    ok = tests_util:start(server2, ?MODULE, [
+        {sip_from, "sip:server2@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_local_host6, "::1"},
+        {transports, "sip:all:5061, sip:[::1]:5061"}
     ]),
 
-    {ok, _} = nksip:start(client1, ?MODULE, client1, [
-        {from, "sip:client1@nksip"},
-        {transports, [{udp, "::1", 5070}]}
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "sip:client1@nksip"},
+        {transports, "sip:[::1]:5070"}
     ]),
     
-    {ok, _} = nksip:start(client2, ?MODULE, client2, [
-        {from, "sip:client2@nksip"},
-        {transports, [{udp, "::1", 5071}]}
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {transports, "sip:[::1]:5071"}
     ]),
 
-    {ok, _} = nksip:start(client3, ?MODULE, client3, [
-        {from, "sip:client3@nksip"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5072}]}
+    ok = tests_util:start(client3, ?MODULE, [
+        {sip_from, "sip:client3@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5072"}
     ]),
 
     tests_util:log(),
@@ -115,20 +117,20 @@ basic() ->
             #sipmsg{
                 ruri = #uri{domain=(<<"[::1]">>)}, 
                 vias = [#via{domain=F_MainIp, opts=ViaOpts1}],
-                transport = Transp1
+                nkport = NkPort1
             } = Resp1,
-            <<"::1">> = nksip_lib:get_value(<<"received">>, ViaOpts1),
-            RPort1 = nksip_lib:get_integer(<<"rport">>, ViaOpts1),
+            <<"::1">> = nklib_util:get_value(<<"received">>, ViaOpts1),
+            RPort1 = nklib_util:get_integer(<<"rport">>, ViaOpts1),
             %% For UDP transport, local ip is set to [:::] (?)
-            #transport{
-                proto = udp,
+            #nkport{
+                transp = udp,
                 local_ip =  {0,0,0,0,0,0,0,1},
                 local_port = RPort1,
                 remote_ip = {0,0,0,0,0,0,0,1},
                 remote_port = 5071,
                 listen_ip = {0,0,0,0,0,0,0,1},
                 listen_port = 5070
-            } = Transp1,
+            } = NkPort1,
             Self ! {Ref, {ok_2, F_MainIp}}
     end,
     RUri1 = "<sip:[::1]:5071>",
@@ -146,20 +148,20 @@ basic() ->
             #sipmsg{
                 ruri = #uri{domain=(<<"[::1]">>)}, 
                 vias = [#via{domain=MainIp, opts=ViaOpts2}],
-                transport = Transp2
+                nkport = NkPort2
             } = Resp2,
-            <<"::1">> = nksip_lib:get_value(<<"received">>, ViaOpts2),
-            RPort2 = nksip_lib:get_integer(<<"rport">>, ViaOpts2),
+            <<"::1">> = nklib_util:get_value(<<"received">>, ViaOpts2),
+            RPort2 = nklib_util:get_integer(<<"rport">>, ViaOpts2),
             %% For TCP transport, local ip is set to [::1]
-            #transport{
-                proto = tcp,
+            #nkport{
+                transp = tcp,
                 local_ip =  {0,0,0,0,0,0,0,1},
                 local_port = RPort2,
                 remote_ip = {0,0,0,0,0,0,0,1},
                 remote_port = 5071,
                 listen_ip = {0,0,0,0,0,0,0,1},
                 listen_port = 5070
-            } = Transp2,
+            } = NkPort2,
             Self ! {Ref, ok_4}
     end,
     RUri2 = "<sip:[::1]:5071;transport=tcp>",
@@ -369,7 +371,7 @@ torture_5() ->
                      opts = [{<<"received">>, Rec1 = <<"[2001:db8::9:255]">>},
                              {<<"branch">>, <<"z9hG4bKas3-111">>}]}]
     } = parse(Msg5),
-    {ok,{16#2001,16#db8,0,0,0,0,16#9,16#255}} = nksip_lib:to_ip(Rec1),
+    {ok,{16#2001,16#db8,0,0,0,0,16#9,16#255}} = nklib_util:to_ip(Rec1),
     ok.
 
 torture_6() ->
@@ -389,7 +391,7 @@ torture_6() ->
                      opts = [{<<"received">>, Rec2 = <<"2001:db8::9:255">>},
                              {<<"branch">>, <<"z9hG4bKas3">>}]}]
     } = parse(Msg6),
-    {ok,{8193,3512,0,0,0,0,9,597}} = nksip_lib:to_ip(Rec2),
+    {ok,{8193,3512,0,0,0,0,9,597}} = nklib_util:to_ip(Rec2),
     ok.
 
 torture_7() ->
@@ -438,7 +440,7 @@ torture_8() ->
              opts = [{<<"branch">>,<<"z9hG4bKas3-111">>}]},
         #via{domain = <<"192.0.2.1">>, port = 0,
              opts = [{<<"branch">>,<<"z9hG4bKjhja8781hjuaij65144">>}]},
-        #via{proto = tcp, domain = <<"[2001:db8::9:255]">>, port = 0,
+        #via{transp = tcp, domain = <<"[2001:db8::9:255]">>, port = 0,
              opts = [{<<"branch">>,<<"z9hG4bK451jj">>}, {<<"received">>,<<"192.0.2.200">>}]}
     ]} = parse(Msg8),
     ok.
@@ -510,14 +512,14 @@ torture_10() ->
         }
     } = parse(Msg10),
 
-    error = nksip_lib:to_ip(<<"2001:db8:::192.0.2.1">>),
+    error = nklib_util:to_ip(<<"2001:db8:::192.0.2.1">>),
     {ok, {0,0,0,0,0,16#ffff,16#C000,16#0202}} = 
-        nksip_lib:to_ip(<<"::ffff:192.0.2.2">>),
+        nklib_util:to_ip(<<"::ffff:192.0.2.2">>),
     ok.
 
 
 parse(Msg) ->
-    case nksip_parse:packet(test, #transport{}, Msg) of
+    case nksip_parse:packet(test, #nkport{}, Msg) of
         {ok, SipMsg, <<>>}  -> SipMsg;
         {reply_error, Error, Bin} -> {reply_error, Error, Bin};
         {error, Error} -> {error, Error}
@@ -528,19 +530,19 @@ parse(Msg) ->
 %%%%%%%%%%%%%%%%%%%%%%%  CallBacks (servers and clients) %%%%%%%%%%%%%%%%%%%%%
 
 
-init(Id) ->
-    ok = nksip:put(Id, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
-    {ok, []}.
+init(#{name:=Name}, State) ->
+    ok = nkservice_server:put(Name, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
+    {ok, State}.
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, server1} ->
             Opts = [
                 {insert, "x-nk-id", "server1"},
                 {route, "<sip:[::1]:5061;lr;transport=tcp>"}
             ],
-            {ok, Domains} = nksip:get(server1, domains),
+            Domains = nkservice_server:get(server1, domains),
             case lists:member(Domain, Domains) of
                 true when User =:= <<>> ->
                     process;
@@ -566,8 +568,8 @@ sip_route(Scheme, User, Domain, Req, _Call) ->
 sip_invite(Req, _Call) ->
     tests_util:save_ref(Req),
     {ok, Ids} = nksip_request:header(<<"x-nk-id">>, Req),
-    {ok, AppName} = nksip_request:app_name(Req),
-    Hds = [{add, "x-nk-id", nksip_lib:bjoin([AppName|Ids])}],
+    {ok, SrvName} = nksip_request:srv_name(Req),
+    Hds = [{add, "x-nk-id", nklib_util:bjoin([SrvName|Ids])}],
     {reply, {ok, Hds}}.
 
 

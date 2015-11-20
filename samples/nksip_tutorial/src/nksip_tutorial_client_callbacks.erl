@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -18,10 +18,10 @@
 %%
 %% -------------------------------------------------------------------
 
-%% @doc SipApp Tutorial client callback module implementation.
+%% @doc Service Tutorial client callback module implementation.
 %% This modules implements a client callback module for NkSIP Tutorial.
 
--module(nksip_tutorial_sipapp_client).
+-module(nksip_tutorial_client_callbacks).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -export([sip_invite/2, sip_options/2]).
@@ -55,7 +55,7 @@ sip_invite(Req, _Call) ->
 %% @doc Called when an OPTIONS is received.
 %% Reply 200 Ok with a custom header and some options.
 sip_options(Req, _Call) ->
-    {ok, AppName} = nksip_request:app_name(Req),
+    {ok, AppName} = nksip_request:srv_name(Req),
     {reply, {ok, [{add, "x-nk-id", AppName}, contact, allow, accept, supported]}}.
 
 

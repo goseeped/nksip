@@ -1,7 +1,7 @@
 
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -27,6 +27,7 @@
 -export([get_handle/1, parse_handle/1, make_id/2, remote_id/2, change_app/2]).
 -export_type([id/0]).
 
+-include_lib("nklib/include/nklib.hrl").
 -include("nksip.hrl").
 -include("nksip_call.hrl").
 
@@ -49,29 +50,29 @@
 -spec get_handle(nksip:dialog()|nksip:request()|nksip:response()|nksip:handle()) ->
     nksip:handle().
 
-get_handle(#dialog{id=Id, app_id=AppId, call_id=CallId}) ->
-    App = atom_to_binary(AppId, latin1),
-    <<$D, $_, Id/binary, $_, App/binary, $_, CallId/binary>>;
-get_handle(#sipmsg{dialog_id=DialogId, app_id=AppId, call_id=CallId}) ->
-    App = atom_to_binary(AppId, latin1),
-    <<$D, $_, DialogId/binary, $_, App/binary, $_, CallId/binary>>;
+get_handle(#dialog{id=Id, srv_id=SrvId, call_id=CallId}) ->
+    Srv = atom_to_binary(SrvId, latin1),
+    <<$D, $_, Id/binary, $_, Srv/binary, $_, CallId/binary>>;
+get_handle(#sipmsg{dialog_id=DialogId, srv_id=SrvId, call_id=CallId}) ->
+    Srv = atom_to_binary(SrvId, latin1),
+    <<$D, $_, DialogId/binary, $_, Srv/binary, $_, CallId/binary>>;
 get_handle(<<"D_", _/binary>>=DialogId) ->
     DialogId;
 get_handle(<<"U_", _/binary>>=Id) ->
-    {AppId, _, DialogId, CallId} = nksip_subscription_lib:parse_handle(Id),
-    App = atom_to_binary(AppId, latin1), 
-    <<$D, $_, DialogId/binary, $_, App/binary, $_, CallId/binary>>;
+    {SrvId, _, DialogId, CallId} = nksip_subscription_lib:parse_handle(Id),
+    Srv = atom_to_binary(SrvId, latin1), 
+    <<$D, $_, DialogId/binary, $_, Srv/binary, $_, CallId/binary>>;
 get_handle(_) ->
     error(invalid_dialog).
 
 
 %% @doc 
 -spec parse_handle(nksip:handle()) -> 
-    {nksip:app_id(), id(), nksip:call_id()}.
+    {nksip:srv_id(), id(), nksip:call_id()}.
 
 parse_handle(<<$D, $_, _/binary>>=Bin) ->
-    <<$D, $_, Id:6/binary, $_, App:7/binary, $_, CallId/binary>> = Bin,
-    {binary_to_existing_atom(App, latin1), Id, CallId};
+    <<$D, $_, Id:6/binary, $_, Srv:7/binary, $_, CallId/binary>> = Bin,
+    {binary_to_existing_atom(Srv, latin1), Id, CallId};
 parse_handle(_) ->
     error(invalid_handle).
 
@@ -84,24 +85,24 @@ meta(Field, #dialog{invite=I}=D) ->
     case Field of
         handle -> get_handle(D);
         internal_id -> D#dialog.id;
-        app_id -> D#dialog.app_id;
-        app_name -> apply(D#dialog.app_id, name, []);
+        srv_id -> D#dialog.srv_id;
+        srv_name -> apply(D#dialog.srv_id, name, []);
         created -> D#dialog.created;
         updated -> D#dialog.updated;
         local_seq -> D#dialog.local_seq; 
         remote_seq  -> D#dialog.remote_seq; 
         local_uri -> D#dialog.local_uri;
-        raw_local_uri -> nksip_unparse:uri(D#dialog.local_uri);
+        raw_local_uri -> nklib_unparse:uri(D#dialog.local_uri);
         remote_uri -> D#dialog.remote_uri;
-        raw_remote_uri -> nksip_unparse:uri(D#dialog.remote_uri);
+        raw_remote_uri -> nklib_unparse:uri(D#dialog.remote_uri);
         local_target -> D#dialog.local_target;
-        raw_local_target -> nksip_unparse:uri(D#dialog.local_target);
+        raw_local_target -> nklib_unparse:uri(D#dialog.local_target);
         remote_target -> D#dialog.remote_target;
-        raw_remote_target -> nksip_unparse:uri(D#dialog.remote_target);
+        raw_remote_target -> nklib_unparse:uri(D#dialog.remote_target);
         early -> D#dialog.early;
         secure -> D#dialog.secure;
         route_set -> D#dialog.route_set;
-        raw_route_set -> [nksip_lib:to_binary(Route) || Route <- D#dialog.route_set];
+        raw_route_set -> [nklib_util:to_binary(Route) || Route <- D#dialog.route_set];
         invite_status when is_record(I, invite) -> I#invite.status;
         invite_status -> undefined;
         invite_answered when is_record(I, invite) -> I#invite.answered;
@@ -115,8 +116,8 @@ meta(Field, #dialog{invite=I}=D) ->
         subscriptions -> 
             [nksip_subscription_lib:get_handle({user_subs, S, D}) || S <- D#dialog.subscriptions];
         call_id -> D#dialog.call_id;
-        from_tag -> nksip_lib:get_binary(<<"tag">>, (D#dialog.local_uri)#uri.ext_opts);
-        to_tag -> nksip_lib:get_binary(<<"tag">>, (D#dialog.remote_uri)#uri.ext_opts);
+        from_tag -> nklib_util:get_binary(<<"tag">>, (D#dialog.local_uri)#uri.ext_opts);
+        to_tag -> nklib_util:get_binary(<<"tag">>, (D#dialog.remote_uri)#uri.ext_opts);
         full_dialog -> D;
         {function, Fun} -> Fun(D);
         _ -> error({invalid_field, Field}) 
@@ -146,7 +147,7 @@ remote_meta(Field, Handle) ->
     {ok, [{nksip_dialog:field(), term()}]} | {error, term()}.
 
 remote_metas(Fields, Handle) when is_list(Fields) ->
-    {AppId, DialogId, CallId} = parse_handle(Handle),
+    {SrvId, DialogId, CallId} = parse_handle(Handle),
     Fun = fun(Dialog) ->
         case catch metas(Fields, Dialog) of
             {'EXIT', {{invalid_field, Field}, _}} -> 
@@ -155,7 +156,7 @@ remote_metas(Fields, Handle) when is_list(Fields) ->
                 {ok, Values}
         end
     end,
-    case nksip_call:apply_dialog(AppId, CallId, DialogId, Fun) of
+    case nksip_call:apply_dialog(SrvId, CallId, DialogId, Fun) of
         {apply, {ok, Values}} -> 
             {ok, Values};
         {apply, {error, {invalid_field, Field}}} -> 
@@ -198,32 +199,32 @@ make_id(_, #sipmsg{}) ->
 
 make_id(Class, FromTag, ToTag) ->
     case Class of
-        uac -> nksip_lib:hash({ToTag, FromTag});
-        uas -> nksip_lib:hash({FromTag, ToTag})
+        uac -> nklib_util:hash({ToTag, FromTag});
+        uas -> nklib_util:hash({FromTag, ToTag})
     end.
 
 
 %% @private Hack to find the UAS dialog from the UAC and the opposite way
-remote_id(<<$D, _/binary>>=DialogId, App) ->
-    {ok, AppId} = nksip:find_app_id(App),
+remote_id(<<$D, _/binary>>=DialogId, Srv) ->
+    {ok, SrvId} = nkservice_server:get_srv_id(Srv),
     {ok, [{internal_id, BaseId}, {local_uri, LUri}, {remote_uri, RUri}, {call_id, CallId}]} =  
         nksip_dialog:metas([internal_id, local_uri, remote_uri, call_id], DialogId),
-    FromTag = nksip_lib:get_binary(<<"tag">>, LUri#uri.ext_opts),
-    ToTag = nksip_lib:get_binary(<<"tag">>, RUri#uri.ext_opts),
+    FromTag = nklib_util:get_binary(<<"tag">>, LUri#uri.ext_opts),
+    ToTag = nklib_util:get_binary(<<"tag">>, RUri#uri.ext_opts),
     Id = case make_id(uac, FromTag, ToTag) of
         BaseId -> make_id(uas, FromTag, ToTag);
         RemoteId -> RemoteId
     end,
-    BinApp = atom_to_binary(AppId, latin1),
-    <<$D, $_, Id/binary, $_, BinApp/binary, $_, CallId/binary>>.
+    BinSrv = atom_to_binary(SrvId, latin1),
+    <<$D, $_, Id/binary, $_, BinSrv/binary, $_, CallId/binary>>.
 
 
 %% @private Hack to find de dialog at another app in the same machine
-change_app(Id, App) ->
+change_app(Id, Srv) ->
     {_, DialogId, CallId} = parse_handle(Id),
-    {ok, AppId1} = nksip:find_app_id(App),
-    App1 = atom_to_binary(AppId1, latin1),
-    <<$D, $_, DialogId/binary, $_, App1/binary, $_, CallId/binary>>.
+    {ok, SrvId1} = nkservice_server:get_srv_id(Srv),
+    Srv1 = atom_to_binary(SrvId1, latin1),
+    <<$D, $_, DialogId/binary, $_, Srv1/binary, $_, CallId/binary>>.
 
 
 %% @private

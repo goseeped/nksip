@@ -1,7 +1,7 @@
 
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -25,7 +25,7 @@
 -module(nksip_dialog).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
--export([app_id/1, app_name/1, get_handle/1, call_id/1, meta/2, metas/2]).
+-export([srv_id/1, srv_name/1, get_handle/1, call_id/1, meta/2, metas/2]).
 -export([get_dialog/2, get_all/0, get_all/2, stop/1, bye_all/0, stop_all/0]).
 -export([get_authorized_list/1, clear_authorized_list/1]).
 -export([get_all_data/0]).
@@ -49,7 +49,7 @@
 % -type spec() :: id() | nksip:handle().
 
 -type field() :: 
-    get_handle | app_id | app_name | created | updated | local_seq | remote_seq | 
+    get_handle | srv_id | srv_name | created | updated | local_seq | remote_seq | 
     local_uri | raw_local_uri | remote_uri | raw_remote_uri | 
     local_target | raw_local_target | remote_target | raw_remote_target | 
     early | secure | route_set | raw_route_set | 
@@ -84,23 +84,23 @@ get_handle(Term) ->
 
 
 %% @doc Gets thel App of a dialog
--spec app_id(nksip:dialog()|nksip:handle()) ->
-    {ok, nksip:app_id()}.
+-spec srv_id(nksip:dialog()|nksip:handle()) ->
+    {ok, nksip:srv_id()}.
 
-app_id(#dialog{app_id=AppId}) ->
-    {ok, AppId};
-app_id(Handle) ->
-    {AppId, _DialogId, _CallId} = nksip_dialog_lib:parse_handle(Handle),
-    {ok, AppId}.
+srv_id(#dialog{srv_id=SrvId}) ->
+    {ok, SrvId};
+srv_id(Handle) ->
+    {SrvId, _DialogId, _CallId} = nksip_dialog_lib:parse_handle(Handle),
+    {ok, SrvId}.
 
 
 %% @doc Gets app's name
--spec app_name(nksip:dialog()|nksip:handle()) -> 
-    {ok, nksip:app_name()} | {error, term()}.
+-spec srv_name(nksip:dialog()|nksip:handle()) -> 
+    {ok, nkservice:name()} | {error, term()}.
 
-app_name(Term) -> 
-    {ok, AppId} = app_id(Term),
-    {ok, AppId:name()}.
+srv_name(Term) -> 
+    {ok, SrvId} = srv_id(Term),
+    {ok, SrvId:name()}.
 
 
 %% @doc Gets thel Call-ID of a dialog
@@ -110,7 +110,7 @@ app_name(Term) ->
 call_id(#dialog{call_id=CallId}) ->
     {ok, CallId};
 call_id(Handle) ->
-    {_AppId, _DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
+    {_SrvId, _DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
     {ok, CallId}.
 
 
@@ -168,13 +168,13 @@ get_all() ->
 
 
 %% @doc Finds all started dialogs handles having `Call-ID'.
--spec get_all(nksip:app_name()|nksip:app_id(), nksip:call_id()) ->
+-spec get_all(nkservice:name()|nksip:srv_id(), nksip:call_id()) ->
     [nksip:handle()].
 
-get_all(App, CallId) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> 
-            case nksip_call:get_all_dialogs(AppId, CallId) of
+get_all(Srv, CallId) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            case nksip_call:get_all_dialogs(SrvId, CallId) of
                 {ok, Handles} -> Handles;
                 {error, _} -> []
             end;
@@ -197,8 +197,8 @@ bye_all() ->
     ok | {error, term()}.
 
 stop(Handle) ->
-    {AppId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
-    nksip_call:stop_dialog(AppId, CallId, DialogId).
+    {SrvId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
+    nksip_call:stop_dialog(SrvId, CallId, DialogId).
 
 
 %% @doc Stops (deletes) all current dialogs.
@@ -211,11 +211,11 @@ stop_all() ->
 
 %% @doc Gets the authorized list of transport, ip and ports for a dialog.
 -spec get_authorized_list(nksip:handle()) ->
-    [{nksip:protocol(), inet:ip_address(), inet:port_number()}].
+    [{nkpacket:transport(), inet:ip_address(), inet:port_number()}].
 
 get_authorized_list(Handle) ->
-    {AppId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
-    case nksip_call:get_authorized_list(AppId, CallId, DialogId)of
+    {SrvId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
+    case nksip_call:get_authorized_list(SrvId, CallId, DialogId)of
         {ok, List} -> List;
         _ -> []
     end.
@@ -226,8 +226,8 @@ get_authorized_list(Handle) ->
     ok | {error, term()}.
 
 clear_authorized_list(Handle) ->
-    {AppId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
-    nksip_call:clear_authorized_list(AppId, CallId, DialogId).
+    {SrvId, DialogId, CallId} = nksip_dialog_lib:parse_handle(Handle),
+    nksip_call:clear_authorized_list(SrvId, CallId, DialogId).
 
 
 
@@ -242,25 +242,25 @@ clear_authorized_list(Handle) ->
     [{nksip:handle(), nksip:optslist()}].
 
 get_all_data() ->
-    Now = nksip_lib:timestamp(),
+    Now = nklib_util:timestamp(),
     Fun = fun(DialogId, Acc) ->
         case meta(full_dialog, DialogId) of
             {ok, #dialog{}=Dialog} ->
                 Data = {DialogId, [
                     {id, Dialog#dialog.id},
-                    {app_id, Dialog#dialog.app_id},
+                    {srv_id, Dialog#dialog.srv_id},
                     {call_id, Dialog#dialog.call_id},
-                    {local_uri, nksip_unparse:uri(Dialog#dialog.local_uri)},
-                    {remote_uri, nksip_unparse:uri(Dialog#dialog.remote_uri)},
+                    {local_uri, nklib_unparse:uri(Dialog#dialog.local_uri)},
+                    {remote_uri, nklib_unparse:uri(Dialog#dialog.remote_uri)},
                     {created, Dialog#dialog.created},
                     {elapsed, Now - Dialog#dialog.created},
                     {updated, Dialog#dialog.updated},
                     {local_seq, Dialog#dialog.local_seq},
                     {remote_seq, Dialog#dialog.remote_seq},
-                    {local_target, nksip_unparse:uri(Dialog#dialog.local_target)},
-                    {remote_target, nksip_unparse:uri(Dialog#dialog.remote_target)},
+                    {local_target, nklib_unparse:uri(Dialog#dialog.local_target)},
+                    {remote_target, nklib_unparse:uri(Dialog#dialog.remote_target)},
                     {route_set, 
-                        [nksip_unparse:uri(Route) || Route <- Dialog#dialog.route_set]},
+                        [nklib_unparse:uri(Route) || Route <- Dialog#dialog.route_set]},
                     {early, Dialog#dialog.early},
                     {invite, 
                         case Dialog#dialog.invite of

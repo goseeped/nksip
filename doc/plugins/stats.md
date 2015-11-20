@@ -25,7 +25,7 @@ None
 
 ## Configuration Values
 
-### SipApp configuration values
+### Service configuration values
 
 None
 
@@ -60,7 +60,7 @@ None
 ## Examples
 
 ```erlang
-nksip:start("my_app", nksip_sipapp, [], [{plugins, [nksip_stats]}]).
+nksip:start("my_app", nksip_callbacks, [], [{plugins, [nksip_stats]}]).
 ```
 
 and afterwards

@@ -21,7 +21,8 @@
 %% -------------------------------------------------------------------
 
 -module(fork_test).
-
+-include_lib("nklib/include/nklib.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include("../include/nksip.hrl").
 
@@ -36,7 +37,7 @@ fork_test_() ->
         {timeout, 60, fun basic/0}, 
         {timeout, 60, fun invite1/0}, 
         {timeout, 60, fun invite2/0}, 
-        {timeout, 60, fun redirect/0}, 
+        {timeout, 60, fun redirect/0},
         {timeout, 60, fun multiple_200/0}
       ]
   }.
@@ -45,103 +46,103 @@ fork_test_() ->
 start() ->
     tests_util:start_nksip(),
     
+    % Registrar server
+
+    {ok, _} = do_start(serverR, [
+        {sip_from, "sip:serverR@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "localhost"},
+        {plugins, [nksip_registrar]},
+        {transports, "sip:all:5060"}
+    ]),
+
+
     % Clients to initiate connections
 
     {ok, _} = do_start(client1, [
-        {from, "sip:client1@nksip"},
-        {route, "<sip:127.0.0.1:5061;lr>"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5071}]}
+        {sip_from, "sip:client1@nksip"},
+        {sip_route, "<sip:127.0.0.1:5061;lr>"},
+        {sip_local_host, "127.0.0.1"},
+        {transports, "sip:all:5071"}
     ]),
 
     % Server1 is stateless
     {ok, _} = do_start(server1, [
-        {from, "sip:server1@nksip"},
-        no_100,
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5061}]}
+        {sip_from, "sip:server1@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "localhost"},
+        {transports, "sip:all:5061"}
     ]),
 
     {ok, _} = do_start(client2, [
-        {from, "sip:client2@nksip"},
-        {route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:client2@nksip"},
+        {sip_route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(server2, [
-        {from, "sip:serverB@nksip"},
-        no_100,
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5062}]}
+        {sip_from, "sip:serverB@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "localhost"},
+        {transports, "<sip:all:5062>"}
     ]),
 
     {ok, _} = do_start(client3, [
-        {from, "sip:client3@nksip"},
-        {route, "<sip:127.0.0.1:5063;lr>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:client3@nksip"},
+        {sip_route, "<sip:127.0.0.1:5063;lr>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(server3, [
-        {from, "sip:server3@nksip"},
-        no_100,
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5063}]}
-    ]),
-
-
-    % Registrar server
-
-    {ok, _} = do_start(serverR, [
-        {from, "sip:serverR@nksip"},
-        {plugins, [nksip_registrar]},
-        no_100,
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}]}
+        {sip_from, "sip:server3@nksip"},
+        {sip_no_100, true},
+        {sip_local_host, "localhost"},
+        {transports, "<sip:all:5063>"}
     ]),
 
 
     % Clients to receive connections
 
     {ok, _} = do_start(clientA1, [
-        {from, "sip:clientA1@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5061;lr>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientA1@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5061;lr>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(clientB1, [
-        {from, "sip:clientB1@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientB1@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(clientC1, [
-        {from, "sip:clientC1@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5063;lr>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientC1@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5063;lr>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(clientA2, [
-        {from, "sip:clientA2@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5061;lr>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientA2@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5061;lr>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(clientB2, [
-        {from, "sip:clientB2@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientB2@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5062;lr;transport=tcp>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
     
     {ok, _} = do_start(clientC3, [
-        {from, "sip:clientC3@nksip"},
-        no_100,
-        {route, "<sip:127.0.0.1:5063;lr>"},
-        {local_host, "127.0.0.1"}
+        {sip_from, "sip:clientC3@nksip"},
+        {sip_no_100, true},
+        {sip_route, "<sip:127.0.0.1:5063;lr>"},
+        {sip_local_host, "127.0.0.1"}
     ]),
 
     {ok, _} = do_start(clientD1, []),
@@ -151,8 +152,8 @@ start() ->
     ?debugFmt("Starting ~p", [?MODULE]).
 
 
-do_start(AppId, Opts) ->
-    nksip:start(AppId, ?MODULE, AppId, Opts).
+do_start(SrvId, Opts) ->
+    nksip:start(SrvId, [{callback, ?MODULE}|Opts]).
 
 
 
@@ -184,32 +185,32 @@ regs() ->
     Reg = "sip:nksip",
     Opts = [contact, {meta, [contacts]}],
     {ok, 200, Values1} = nksip_uac:register(clientA1, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientA1">>}=CA1]}] = Values1,
+    [{contacts, [#uri{scheme=sip, user= <<"clientA1">>}=CA1]}] = Values1,
     {ok, 200, []} = nksip_uac:register(clientA1, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CA1#uri{ext_opts=[{q, 0.1}]}}]),
 
     {ok, 200, Values3} = nksip_uac:register(clientB1, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientB1">>}=CB1]}] = Values3,
+    [{contacts, [#uri{scheme=sip, user= <<"clientB1">>}=CB1]}] = Values3,
     {ok, 200, []} = nksip_uac:register(clientB1, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CB1#uri{ext_opts=[{q, 0.1}]}}]),
 
     {ok, 200, Values5} = nksip_uac:register(clientC1, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientC1">>}=CC1]}] = Values5,
+    [{contacts, [#uri{scheme=sip, user= <<"clientC1">>}=CC1]}] = Values5,
     {ok, 200, []} = nksip_uac:register(clientC1, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CC1#uri{ext_opts=[{q, 0.1}]}}]),
     
     {ok, 200, Values7} = nksip_uac:register(clientA2, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientA2">>}=CA2]}] = Values7,
+    [{contacts, [#uri{scheme=sip, user= <<"clientA2">>}=CA2]}] = Values7,
     {ok, 200, []} = nksip_uac:register(clientA2, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CA2#uri{ext_opts=[{q, 0.2}]}}]),
 
     {ok, 200, Values9} = nksip_uac:register(clientB2, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientB2">>}=CB2]}] = Values9,
+    [{contacts, [#uri{scheme=sip, user= <<"clientB2">>}=CB2]}] = Values9,
     {ok, 200, []} = nksip_uac:register(clientB2, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CB2#uri{ext_opts=[{q, 0.2}]}}]),
 
     {ok, 200, Values11} = nksip_uac:register(clientC3, Reg, Opts),
-    [{contacts, [#uri{user= <<"clientC3">>}=CC3]}] = Values11, 
+    [{contacts, [#uri{scheme=sip, user= <<"clientC3">>}=CC3]}] = Values11, 
     {ok, 200, []} = nksip_uac:register(clientC3, Reg, 
                 [{from, "sip:qtest@nksip"}, {contact, CC3#uri{ext_opts=[{q, 0.3}]}}]),    
 
@@ -355,9 +356,9 @@ invite2() ->
     % lager:notice("A")
 
 
-    {ok, C2Id} = nksip:find_app_id(client2),
+    {ok, C2Id} = nkservice_server:get_srv_id(client2),
     {ok, CallId} = nksip_dialog:call_id(Dlg_C2_1),
-    [Dlg_C2_2, Dlg_C2_3] = [D || D <- All, element(2, nksip_dialog:app_id(D))==C2Id,
+    [Dlg_C2_2, Dlg_C2_3] = [D || D <- All, element(2, nksip_dialog:srv_id(D))==C2Id,
                             element(2, nksip_dialog:call_id(D))=:=CallId, D/=Dlg_C2_1],
     {ok, proceeding_uac} = nksip_dialog:meta(invite_status, Dlg_C2_2),
     {ok, proceeding_uac} = nksip_dialog:meta(invite_status, Dlg_C2_3),
@@ -424,11 +425,11 @@ redirect() ->
     QUri = "sip:qtest@nksip",
     {Ref, RepHd} = tests_util:get_ref(),
     
-    not_found = get_port(other, udp, ipv4),
-    PortD1 = get_port(clientD1, udp, ipv4),
-    PortD2 = get_port(clientD2, tcp, ipv4),
+    not_found = get_port(other, udp),
+    PortD1 = get_port(clientD1, udp),
+    PortD2 = get_port(clientD2, tcp),
     Contacts = ["sip:127.0.0.1:"++integer_to_list(PortD1),
-                #uri{domain= <<"127.0.0.1">>, port=PortD2, opts=[{transport, tcp}]}],
+                #uri{scheme=sip, domain= <<"127.0.0.1">>, port=PortD2, opts=[{transport, tcp}]}],
 
     Body1 = {body, [{clientC1, {redirect, Contacts}}, {clientD2, 570}]},
     Fs = {meta, [<<"contact">>]},
@@ -577,13 +578,13 @@ multiple_200() ->
 %%%%%%%%%%%%%%%%%%%%%%%  CallBacks (servers and clients) %%%%%%%%%%%%%%%%%%%%%
 
 
-init(Id) ->
-    ok = nksip:put(Id, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
-    {ok, []}.
+init(#{name:=Id}, State) ->
+    ok = nkservice_server:put(Id, domains, [<<"nksip">>, <<"127.0.0.1">>, <<"[::1]">>]),
+    {ok, State}.
 
 
 sip_route(Scheme, User, Domain, Req, _Call) ->
-    case nksip_request:app_name(Req) of
+    case nksip_request:srv_name(Req) of
         {ok, serverR} ->
             % Route for serverR in fork test
             % Adds x-nk-id header, and Record-Route if Nk-Rr is true
@@ -599,7 +600,7 @@ sip_route(Scheme, User, Domain, Req, _Call) ->
                     {ok, _} -> []
                 end
             ]),
-            {ok, Domains} = nksip:get(serverR, domains),
+            Domains = nkservice_server:get(serverR, domains),
             case lists:member(Domain, Domains) of
                 true when User =:= <<>> ->
                     process;
@@ -619,7 +620,7 @@ sip_route(Scheme, User, Domain, Req, _Call) ->
             % Always Record-Route
             % If domain is "nksip" routes to serverR
             Opts = [record_route, {insert, "x-nk-id", App}],
-            {ok, Domains} = nksip:get(App, domains),
+            Domains = nkservice_server:get(App, domains),
             case lists:member(Domain, Domains) of
                 true when Domain==<<"nksip">>, App==server1 ->
                     {proxy_stateless, ruri, [{route, "<sip:127.0.0.1;lr>"}|Opts]};
@@ -642,14 +643,14 @@ sip_route(Scheme, User, Domain, Req, _Call) ->
 sip_invite(Req, _Call) ->
     tests_util:save_ref(Req),
     {ok, Ids} = nksip_request:header(<<"x-nk-id">>, Req),
-    {ok, App} = nksip_request:app_name(Req),
-    Hds = [{add, "x-nk-id", nksip_lib:bjoin([App|Ids])}],
+    {ok, App} = nksip_request:srv_name(Req),
+    Hds = [{add, "x-nk-id", nklib_util:bjoin([App|Ids])}],
     case nksip_request:body(Req) of
         {ok, Ops} when is_list(Ops) ->
             {ok, ReqId} = nksip_request:get_handle(Req),
             proc_lib:spawn(
                 fun() ->
-                    case nksip_lib:get_value(App, Ops) of
+                    case nklib_util:get_value(App, Ops) of
                         {redirect, Contacts} ->
                             Code = 300,
                             nksip_request:reply({redirect, Contacts}, ReqId);
@@ -684,8 +685,8 @@ sip_ack(Req, _Call) ->
 
 sip_options(Req, _Call) ->
     {ok, Ids} = nksip_request:header(<<"x-nk-id">>, Req),
-    {ok, App} = nksip_request:app_name(Req),
-    Hds = [{add, "x-nk-id", nksip_lib:bjoin([App|Ids])}],
+    {ok, App} = nksip_request:srv_name(Req),
+    Hds = [{add, "x-nk-id", nklib_util:bjoin([App|Ids])}],
     {reply, {ok, [contact|Hds]}}.
 
 
@@ -697,11 +698,11 @@ sip_bye(Req, _Call) ->
 
 %%%%%
 
-get_port(App, Proto, Class) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> 
-            case nksip_transport:get_listening(AppId, Proto, Class) of
-                [{#transport{listen_port=Port}, _Pid}|_] -> Port;
+get_port(Srv, Transp) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> 
+            case nkpacket:get_listening(nksip_protocol, Transp, #{srv_id=>{nksip, SrvId}}) of
+                [#nkport{listen_port=Port}|_] -> Port;
                 _ -> not_found
             end;
         not_found ->

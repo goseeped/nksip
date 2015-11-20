@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -28,13 +28,16 @@
 -export([supported/2, require/2, is_dialog_forming/1, get_handle/1, parse_handle/1]).
 -export([remote_meta/2, remote_metas/2]).
 -export_type([id/0, field/0]).
+
+-include_lib("nklib/include/nklib.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 -include("nksip.hrl").
 
 -type id() :: binary().
 
 -type field() ::  
-    handle | internal_id | app_id | app_name | dialog_handle | subscription_handle |
-    proto | local | remote | method | ruri | scheme | user | domain | aor |
+    handle | internal_id | srv_id | srv_name | dialog_handle | subscription_handle |
+    transp | local | remote | method | ruri | scheme | user | domain | aor |
     code | reason_phrase | content_type | body | call_id | vias | 
     from | from_tag | from_scheme | from_user | from_domain | 
     to | to_tag | to_scheme | to_user | to_domain | 
@@ -64,26 +67,32 @@ meta(Name, #sipmsg{class=Class, ruri=RUri, from=From, to=To}=S) ->
     case Name of
         handle -> get_handle(S);
         internal_id -> S#sipmsg.id;
-        app_id -> S#sipmsg.app_id;
-        app_name -> apply(S#sipmsg.app_id, name, []);
+        srv_id -> S#sipmsg.srv_id;
+        srv_name -> apply(S#sipmsg.srv_id, name, []);
         dialog_handle -> nksip_dialog_lib:get_handle(S);
         subscription_handle -> nksip_subscription_lib:get_handle(S);
-        proto -> 
-            case S#sipmsg.transport of
-                #transport{proto=P} -> P; 
+        transp -> 
+            case S#sipmsg.nkport of
+                #nkport{transp=P} -> P; 
                 _ -> undefined 
             end;
         local -> 
-            case S#sipmsg.transport of 
-                #transport{proto=P, local_ip=Ip, local_port=Port, resource=Res} -> 
-                    {P, Ip, Port, Res};
+            case S#sipmsg.nkport of 
+                #nkport{transp=T, local_ip=Ip, local_port=Port, meta=Meta} 
+                        when T==ws; T==wss -> 
+                    {T, Ip, Port, maps:get(path, Meta, <<>>)};
+                #nkport{transp=T, local_ip=Ip, local_port=Port} -> 
+                    {T, Ip, Port, <<>>};
                 _ -> 
                     undefined
             end;
         remote -> 
-            case S#sipmsg.transport of 
-                #transport{proto=P, remote_ip=Ip, remote_port=Port, resource=Res} -> 
-                    {P, Ip, Port, Res};
+            case S#sipmsg.nkport of 
+                #nkport{transp=T, remote_ip=Ip, remote_port=Port, meta=Meta} 
+                        when T==ws; T==wss -> 
+                    {T, Ip, Port, maps:get(path, Meta, <<>>)};
+                #nkport{transp=T, remote_ip=Ip, remote_port=Port} -> 
+                    {T, Ip, Port, <<>>};
                 _ -> 
                     undefined
             end;
@@ -136,11 +145,11 @@ meta(Name, #sipmsg{class=Class, ruri=RUri, from=From, to=To}=S) ->
         rack ->
             case header(<<"rack">>, S) of 
                 [RAck] ->
-                    case nksip_lib:tokens(RAck) of
+                    case nklib_util:words(RAck) of
                         [RSeq, CSeq, Method] ->
                             {
-                                nksip_lib:to_integer(RSeq),
-                                nksip_lib:to_integer(CSeq),
+                                nklib_util:to_integer(RSeq),
+                                nklib_util:to_integer(CSeq),
                                 nksip_parse:method(Method)
                             };
                         _ ->
@@ -176,45 +185,45 @@ header(Name, S) ->
         <<"call-id">> -> 
             S#sipmsg.call_id;
         <<"via">> -> 
-            [nksip_lib:to_binary(Via) || Via <- S#sipmsg.vias];
+            [nklib_util:to_binary(Via) || Via <- S#sipmsg.vias];
         <<"from">> -> 
-            [nksip_unparse:uri(element(1, S#sipmsg.from))];
+            [nklib_unparse:uri(element(1, S#sipmsg.from))];
         <<"to">> -> 
-            [nksip_unparse:uri(element(1, S#sipmsg.to))];
+            [nklib_unparse:uri(element(1, S#sipmsg.to))];
         <<"cseq">> ->
             #sipmsg{cseq={CSeqNum, Method}} = S,
-            [<<(nksip_lib:to_binary(CSeqNum))/binary, 32, 
-              (nksip_lib:to_binary(Method))/binary>>];
+            [<<(nklib_util:to_binary(CSeqNum))/binary, 32, 
+              (nklib_util:to_binary(Method))/binary>>];
         <<"forwards">> -> 
-            [nksip_lib:to_binary(S#sipmsg.forwards)];
+            [nklib_util:to_binary(S#sipmsg.forwards)];
         <<"route">> -> 
-            [nksip_lib:to_binary(Route) || Route <- S#sipmsg.routes];
+            [nklib_util:to_binary(Route) || Route <- S#sipmsg.routes];
         <<"contact">> -> 
-            [nksip_lib:to_binary(Contact) || Contact <- S#sipmsg.contacts];
+            [nklib_util:to_binary(Contact) || Contact <- S#sipmsg.contacts];
         <<"content-type">> -> 
             case S#sipmsg.content_type of
                 undefined -> [];
-                ContentType -> [nksip_unparse:token(ContentType)]
+                ContentType -> [nklib_unparse:token(ContentType)]
             end;
         <<"require">> -> 
             case S#sipmsg.require of
                 [] -> [];
-                Require -> [nksip_lib:bjoin(Require)]
+                Require -> [nklib_util:bjoin(Require)]
             end;
         <<"supported">> -> 
             case S#sipmsg.supported of
                 [] -> [];
-                Supported -> [nksip_lib:bjoin(Supported)]
+                Supported -> [nklib_util:bjoin(Supported)]
             end;
         <<"expires">> -> 
             case S#sipmsg.expires of
                 undefined -> [];
-                Expires -> [nksip_lib:to_binary(Expires)]
+                Expires -> [nklib_util:to_binary(Expires)]
             end;
         <<"event">> -> 
             case S#sipmsg.event of
                 undefined -> [];
-                Event -> [nksip_unparse:token(Event)]
+                Event -> [nklib_unparse:token(Event)]
             end;
         _ -> 
             [nksip_unparse:header(Value) || 
@@ -230,10 +239,10 @@ header(Name, S) ->
 header(Name, #sipmsg{}=SipMsg, Type) ->
     Raw = header(Name, SipMsg),
     case Type of
-        uris -> nksip_parse:uris(Raw);
-        tokens -> nksip_parse:tokens(Raw);
-        integers -> nksip_parse:integers(Raw);
-        dates -> nksip_parse:dates(Raw)
+        uris -> nklib_parse:uris(Raw);
+        tokens -> nklib_parse:tokens(Raw);
+        integers -> nklib_parse:integers(Raw);
+        dates -> nklib_parse:dates(Raw)
     end.
 
 
@@ -317,14 +326,14 @@ expired(#sipmsg{expires=Expires, start=Start}=Req) ->
         true ->
             case nksip_sipmsg:header(<<"date">>, Req, dates) of
                 [Date] ->
-                    Final = nksip_lib:gmt_to_timestamp(Date) + Expires,
-                    case nksip_lib:timestamp() of
+                    Final = nklib_util:gmt_to_timestamp(Date) + Expires,
+                    case nklib_util:timestamp() of
                         TS when TS > Final -> true;
                         _ -> false
                     end;
                 _ ->
                     Final = Start/1000 + Expires,
-                    case nksip_lib:timestamp() of
+                    case nklib_util:timestamp() of
                         TS when TS > Final -> true;
                         _ -> false
                     end
@@ -342,7 +351,7 @@ expired(#sipmsg{expires=Expires, start=Start}=Req) ->
 get_handle(<<Ch, _/binary>>=Handle) when Ch==$R; Ch==$S ->
     Handle;
 
-get_handle(#sipmsg{app_id=AppId, class=Class, id=MsgId, call_id=CallId}) ->
+get_handle(#sipmsg{srv_id=SrvId, class=Class, id=MsgId, call_id=CallId}) ->
     <<
         case Class of
             {req, _} -> $R;
@@ -351,7 +360,7 @@ get_handle(#sipmsg{app_id=AppId, class=Class, id=MsgId, call_id=CallId}) ->
         $_,
         MsgId/binary,
         $_,
-        (atom_to_binary(AppId, latin1))/binary,
+        (atom_to_binary(SrvId, latin1))/binary,
         $_,
         CallId/binary
     >>;
@@ -362,15 +371,15 @@ get_handle(_) ->
 
 %% @private
 -spec parse_handle(nksip:handle()) -> 
-    {req|resp, nksip:app_id(), id(), nksip:call_id()}.
+    {req|resp, nksip:srv_id(), id(), nksip:call_id()}.
 
-parse_handle(<<Ch, $_, Id:6/binary, $_, App:7/binary, $_, CallId/binary>>)
+parse_handle(<<Ch, $_, Id:6/binary, $_, Srv:7/binary, $_, CallId/binary>>)
          when Ch==$R; Ch==$S ->
     Class = case Ch of
         $R -> req;
         $S -> resp
     end,
-    {Class, binary_to_existing_atom(App, latin1), Id, CallId};
+    {Class, binary_to_existing_atom(Srv, latin1), Id, CallId};
 
 parse_handle(_) ->
     error(invalid_handle).
@@ -392,7 +401,7 @@ remote_meta(Field, Handle) ->
     {ok, [{field(), term()}]} | {error, term()}.
 
 remote_metas(Fields, Handle) when is_list(Fields) ->
-    {_Class, AppId, MsgId, CallId} = parse_handle(Handle),
+    {_Class, SrvId, MsgId, CallId} = parse_handle(Handle),
     Fun = fun(SipMsg) ->
         case catch metas(Fields, SipMsg) of
             {'EXIT', {{invalid_field, Field}, _}} -> 
@@ -401,7 +410,7 @@ remote_metas(Fields, Handle) when is_list(Fields) ->
                 {ok, Values}
         end
     end,
-    case nksip_call:apply_sipmsg(AppId, CallId, MsgId, Fun) of
+    case nksip_call:apply_sipmsg(SrvId, CallId, MsgId, Fun) of
         {apply, {ok, Values}} -> 
             {ok, Values};
         {apply, {error, {invalid_field, Field}}} -> 

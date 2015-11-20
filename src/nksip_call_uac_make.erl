@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -23,6 +23,8 @@
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
 -export([make/4, proxy_make/2, make_cancel/2, make_ack/2, make_ack/1]).
+-include_lib("nklib/include/nklib.hrl").
+-include_lib("nkpacket/include/nkpacket.hrl").
 -include("nksip.hrl").
  
 
@@ -32,12 +34,12 @@
 
 
 %% @doc Generates a new request.
--spec make(nksip:app_id(), nksip:method(), nksip:user_uri(), nksip:optslist()) ->    
+-spec make(nksip:srv_id(), nksip:method(), nksip:user_uri(), nksip:optslist()) ->    
     {ok, nksip:request(), nksip:optslist()} | {error, term()}.
     
-make(AppId, Method, Uri, Opts) ->
+make(SrvId, Method, Uri, Opts) ->
     try
-        case nksip_parse:uris(Uri) of
+        case nklib_parse:uris(Uri) of
             [RUri] -> ok;
             _ -> RUri = throw(invalid_uri)
         end,
@@ -45,35 +47,35 @@ make(AppId, Method, Uri, Opts) ->
             {Method1, RUri1} -> ok;
             error -> Method1 = RUri1 = throw(invalid_uri)
         end,
-        FromTag = nksip_lib:uid(),
-        DefFrom = case AppId:config_from() of
+        FromTag = nklib_util:uid(),
+        DefFrom = case SrvId:cache_sip_from() of
             undefined ->
-                #uri{user = <<"user">>, domain = <<"nksip">>, 
+                #uri{scheme=sip, user = <<"user">>, domain = <<"nksip">>, 
                      ext_opts = [{<<"tag">>, FromTag}]};
             #uri{ext_opts=FromOpts}=ConfigFrom ->
                 ConfigFrom#uri{
-                    ext_opts=nksip_lib:store_value(<<"tag">>, FromTag, FromOpts)}
+                    ext_opts=nklib_util:store_value(<<"tag">>, FromTag, FromOpts)}
         end,
         DefTo = RUri1#uri{port=0, opts=[], headers=[], ext_opts=[], ext_headers=[]},
         % We select only first Call-ID
-        CallId = case nksip_lib:get_value(call_id, Opts) of
-            undefined -> nksip_lib:luid();
+        CallId = case nklib_util:get_value(call_id, Opts) of
+            undefined -> nklib_util:luid();
             CallId0 -> CallId0
         end,
         Req1 = #sipmsg{
-            id = nksip_lib:uid(),
+            id = nklib_util:uid(),
             class = {req, Method1},
-            app_id = AppId,
+            srv_id = SrvId,
             ruri = RUri1#uri{headers=[], ext_opts=[], ext_headers=[]},
             from = {DefFrom, FromTag},
             to = {DefTo, <<>>},
             call_id = CallId,
-            cseq = {nksip_config:cseq(), Method1},
+            cseq = {nksip_util:get_cseq(), Method1},
             forwards = 70,
-            transport = #transport{},
-            start = nksip_lib:l_timestamp()
+            nkport = #nkport{},
+            start = nklib_util:l_timestamp()
         },
-        Opts1 = case AppId:config_route() of
+        Opts1 = case SrvId:cache_sip_route() of
             [] -> Opts;
             DefRoutes -> [{route, DefRoutes}|Opts]
         end,
@@ -103,7 +105,7 @@ make(AppId, Method, Uri, Opts) ->
     {ok, nksip:request(), nksip:optslist()} | {error, term()} | 
     {reply, nksip:sipreply()}.
     
-proxy_make(#sipmsg{app_id=AppId, ruri=RUri}=Req, Opts) ->
+proxy_make(#sipmsg{srv_id=SrvId, ruri=RUri}=Req, Opts) ->
     try
         {Req1, Opts1} = parse_plugin_opts(Req, Opts),
         Req2 = case RUri of
@@ -111,7 +113,7 @@ proxy_make(#sipmsg{app_id=AppId, ruri=RUri}=Req, Opts) ->
             #uri{headers=Headers} -> nksip_parse_header:headers(Headers, Req1, post)
         end,
         {Req3, Opts3} = parse_opts(Opts1, Req2, []),
-        case AppId:nkcb_uac_proxy_opts(Req3, Opts3) of
+        case SrvId:nks_sip_uac_proxy_opts(Req3, Opts3) of
             {continue, [Req4, Opts4]} ->
                 Req5 = remove_local_routes(Req4),
                 {ok, Req5, Opts4};
@@ -124,20 +126,20 @@ proxy_make(#sipmsg{app_id=AppId, ruri=RUri}=Req, Opts) ->
 
 
 %% @private
-remove_local_routes(#sipmsg{app_id=AppId, routes=Routes}=Req) ->
-    case do_remove_local_routes(AppId, Routes) of
+remove_local_routes(#sipmsg{srv_id=SrvId, routes=Routes}=Req) ->
+    case do_remove_local_routes(SrvId, Routes) of
         Routes -> Req;
         Routes1 -> Req#sipmsg{routes=Routes1}
     end.
 
 
 %% @private
-do_remove_local_routes(_AppId, []) ->
+do_remove_local_routes(_SrvId, []) ->
     [];
 
-do_remove_local_routes(AppId, [Route|RestRoutes]) ->
-    case nksip_transport:is_local(AppId, Route) of
-        true -> do_remove_local_routes(AppId, RestRoutes);
+do_remove_local_routes(SrvId, [Route|RestRoutes]) ->
+    case nksip_util:is_local(SrvId, Route) of
+        true -> do_remove_local_routes(SrvId, RestRoutes);
         false -> [Route|RestRoutes]
     end.
 
@@ -155,8 +157,8 @@ make_cancel(Req, Opts) ->
         vias = [Via|_], 
         headers = Hds
     } = Req,
-    Headers1 = nksip_lib:extract(Hds, <<"route">>),
-    Headers2 = case nksip_lib:get_value(reason, Opts) of
+    Headers1 = nklib_util:extract(Hds, <<"route">>),
+    Headers2 = case nklib_util:get_value(reason, Opts) of
         undefined ->
             Headers1;
         Reason ->
@@ -167,7 +169,7 @@ make_cancel(Req, Opts) ->
     end,
     Req#sipmsg{
         class = {req, 'CANCEL'},
-        id = nksip_lib:uid(),
+        id = nklib_util:uid(),
         cseq = {CSeq, 'CANCEL'},
         forwards = 70,
         vias = [Via],
@@ -197,7 +199,7 @@ make_ack(Req, #sipmsg{to=To}) ->
 make_ack(#sipmsg{vias=[Via|_], cseq={CSeq, _}}=Req) ->
     Req#sipmsg{
         class = {req, 'ACK'},
-        id = nksip_lib:uid(),
+        id = nklib_util:uid(),
         vias = [Via],
         cseq = {CSeq, 'ACK'},
         forwards = 70,
@@ -222,7 +224,7 @@ parse_opts([], Req, Opts) ->
     {Req, Opts};
 
 parse_opts([Term|Rest], Req, Opts) ->
-    #sipmsg{app_id=AppId, class={req, Method}} = Req,
+    #sipmsg{srv_id=SrvId, class={req, Method}} = Req,
     Op = case Term of
         
         ignore -> ignore;
@@ -304,7 +306,7 @@ parse_opts([Term|Rest], Req, Opts) ->
                 false -> 
                     {update, Req, [{meta, List}|Opts]};
                 {meta, List0} ->
-                    {update, Req, nksip_lib:store_value(meta, List0++List, Opts)}
+                    {update, Req, nklib_util:store_value(meta, List0++List, Opts)}
             end;
         {meta, _} ->
             error;
@@ -313,23 +315,23 @@ parse_opts([Term|Rest], Req, Opts) ->
                 false -> 
                     {update, Req, [{user, List}|Opts]};
                 {user, List0} ->
-                    {update, Req, nksip_lib:store_value(user, List0++List, Opts)}
+                    {update, Req, nklib_util:store_value(user, List0++List, Opts)}
             end;
         {user, _} ->
             error;
         {local_host, auto} ->
             {update, Req, [{local_host, auto}|Opts]};
         {local_host, Host} ->
-            {update, Req, [{local_host, nksip_lib:to_host(Host)}|Opts]};
+            {update, Req, [{local_host, nklib_util:to_host(Host)}|Opts]};
         {local_host6, auto} ->
             {update, Req, [{local_host6, auto}|Opts]};
         {local_host6, Host} ->
-            case nksip_lib:to_ip(Host) of
+            case nklib_util:to_ip(Host) of
                 {ok, HostIp6} -> 
                     % Ensure it is enclosed in `[]'
-                    {update, Req, [{local_host6, nksip_lib:to_host(HostIp6, true)}|Opts]};
+                    {update, Req, [{local_host6, nklib_util:to_host(HostIp6, true)}|Opts]};
                 error -> 
-                    {update, Req, [{local_host6, nksip_lib:to_binary(Host)}|Opts]}
+                    {update, Req, [{local_host6, nklib_util:to_binary(Host)}|Opts]}
             end;
         {callback, Fun} when is_function(Fun, 1) ->
             {update, Req, [{callback, Fun}|Opts]};
@@ -344,11 +346,11 @@ parse_opts([Term|Rest], Req, Opts) ->
         user_agent ->
             {replace, <<"user-agent">>, <<"NkSIP ", ?VERSION>>};
         supported ->
-            {replace, <<"supported">>, AppId:config_supported()};
+            {replace, <<"supported">>, SrvId:cache_sip_supported()};
         allow ->        
-            {replace, <<"allow">>,  AppId:config_allow()};
+            {replace, <<"allow">>,  SrvId:cache_sip_allow()};
         accept ->
-            Accept = case AppId:config_accept() of
+            Accept = case SrvId:cache_sip_accept() of
                 undefined when Method=='INVITE'; Method=='UPDATE'; Method=='PRACK' ->
                     <<"application/sdp">>;
                 undefined ->
@@ -358,10 +360,10 @@ parse_opts([Term|Rest], Req, Opts) ->
             end, 
             {replace, <<"accept">>, Accept};
         date ->
-            Date = nksip_lib:to_binary(httpd_util:rfc1123_date()),
+            Date = nklib_util:to_binary(httpd_util:rfc1123_date()),
             {replace, <<"date">>, Date};
         allow_event ->
-            case AppId:config_events() of
+            case SrvId:cache_sip_events() of
                 [] -> ignore;
                 Events -> {replace, <<"allow-event">>, Events}
             end;
@@ -378,26 +380,26 @@ parse_opts([Term|Rest], Req, Opts) ->
                 active ->
                     <<"active">>;
                 {active, Expires} when is_integer(Expires), Expires>0 ->
-                    {<<"active">>, [{<<"expires">>, nksip_lib:to_binary(Expires)}]};
+                    {<<"active">>, [{<<"expires">>, nklib_util:to_binary(Expires)}]};
                 pending ->
                     <<"pending">>;
                 {pending, Expires} when is_integer(Expires), Expires>0 ->
-                    {<<"pending">>, [{<<"expires">>, nksip_lib:to_binary(Expires)}]};
+                    {<<"pending">>, [{<<"expires">>, nklib_util:to_binary(Expires)}]};
                 {terminated, Reason} when 
                         Reason==deactivated; Reason==probation; Reason==rejected; 
                         Reason==timeout; Reason==giveup; Reason==noresource; 
                         Reason==invariant ->
-                    {<<"terminated">>, [{<<"reason">>, nksip_lib:to_binary(Reason)}]};
+                    {<<"terminated">>, [{<<"reason">>, nklib_util:to_binary(Reason)}]};
                 {terminated, Reason, undefined} when 
                         Reason==deactivated; Reason==probation; Reason==rejected; 
                         Reason==timeout; Reason==giveup; Reason==noresource; 
                         Reason==invariant ->
-                    {<<"terminated">>, [{<<"reason">>, nksip_lib:to_binary(Reason)}]};
+                    {<<"terminated">>, [{<<"reason">>, nklib_util:to_binary(Reason)}]};
                 {terminated, Reason, Retry} when 
                         (Reason==probation orelse Reason==giveup) andalso
                         is_integer(Retry) andalso Retry>0 ->
                     {<<"terminated">>, [
-                        {<<"reason">>, nksip_lib:to_binary(Reason)},
+                        {<<"reason">>, nklib_util:to_binary(Reason)},
                         {<<"retry-after">>, Retry}]};                
                 _ ->
                     throw({invalid_config, session_state})
@@ -410,7 +412,7 @@ parse_opts([Term|Rest], Req, Opts) ->
 
         % Publish options
         {sip_if_match, ETag} ->
-            {replace, <<"sip-if-match">>, nksip_lib:to_binary(ETag)};
+            {replace, <<"sip-if-match">>, nklib_util:to_binary(ETag)};
 
         _ ->
             {update, Req, [Term|Opts]}
@@ -448,8 +450,8 @@ parse_opts([Term|Rest], Req, Opts) ->
 -spec parse_plugin_opts(nksip:request(), nksip:optslist()) ->
     {nksip:request(), nksip:optslist()}.
 
-parse_plugin_opts(#sipmsg{app_id=AppId}=Req, Opts) ->
-    case AppId:nkcb_parse_uac_opts(Req, Opts) of
+parse_plugin_opts(#sipmsg{srv_id=SrvId}=Req, Opts) ->
+    case SrvId:nks_sip_parse_uac_opts(Req, Opts) of
         {continue, [Req1, Opts1]} ->
             {Req1, Opts1};
         {error, Error} ->

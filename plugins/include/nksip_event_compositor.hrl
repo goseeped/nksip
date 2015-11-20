@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -21,7 +21,7 @@
 
 -record(reg_publish, {
     data :: nksip:body(),
-    expires :: nksip_lib:timestamp(),
+    expires :: nklib_util:timestamp(),
     meta = [] :: nksip:optslist()  
 }).
 

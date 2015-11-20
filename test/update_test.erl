@@ -41,20 +41,20 @@ update_test_() ->
 start() ->
     tests_util:start_nksip(),
 
-    {ok, _} = nksip:start(client1, ?MODULE, [], [
-        {from, "sip:client1@nksip"},
-        {local_host, "localhost"},
-        {transports, [{udp, all, 5060}, {tls, all, 5061}]},
-        {plugins, [nksip_100rel]},
-        no_100
+    ok = tests_util:start(client1, ?MODULE, [
+        {sip_from, "sip:client1@nksip"},
+        {sip_local_host, "localhost"},
+        {sip_no_100, true},
+        {transports, "sip:all:5060, <sip:all:5061;transport=tls>"},
+        {plugins, [nksip_100rel]}
     ]),
     
-    {ok, _} = nksip:start(client2, ?MODULE, [], [
-        {from, "sip:client2@nksip"},
-        {local_host, "127.0.0.1"},
-        {transports, [{udp, all, 5070}, {tls, all, 5071}]},
-        {plugins, [nksip_100rel]},
-        no_100
+    ok = tests_util:start(client2, ?MODULE, [
+        {sip_from, "sip:client2@nksip"},
+        {sip_local_host, "127.0.0.1"},
+        {sip_no_100, true},
+        {transports, ["<sip:all:5070>", "<sip:all:5071;transport=tls>"]},
+        {plugins, [nksip_100rel]}
     ]),
 
     tests_util:log(),
@@ -228,8 +228,8 @@ sip_session_update(Update, Dialog, _Call) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%  Util %%%%%%%%%%%%%%%%%%%%%
 
-get_sessions(AppId, DialogId) ->
-    {ok, Sessions} = nksip:get(AppId, sessions, []),
+get_sessions(SrvId, DialogId) ->
+    Sessions = nkservice_server:get(SrvId, sessions, []),
     case lists:keyfind(DialogId, 1, Sessions) of
         {_DialogId, Local, Remote} -> {Local, Remote};
         _ -> not_found

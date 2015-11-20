@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,12 +22,13 @@
 -module(nksip_registrar).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
+-include_lib("nklib/include/nklib.hrl").
 -include("../include/nksip.hrl").
 -include("nksip_registrar.hrl").
 
 -export([find/2, find/4, qfind/2, qfind/4, delete/4, clear/1]).
 -export([is_registered/1, request/1]).
--export([version/0, deps/0, parse_config/1, terminate/2]).
+-export([version/0, deps/0, plugin_start/1, plugin_stop/1]).
 -export_type([reg_contact/0]).
 
 
@@ -48,76 +49,59 @@
     string().
 
 version() ->
-    "0.1".
+    "0.2".
 
 
 %% @doc Dependant plugins
 -spec deps() ->
-    [{atom(), string()}].
+    [atom()].
     
 deps() ->
-    [].
+    [nksip].
 
 
-%% @doc Parses this plugin specific configuration
--spec parse_config(nksip:optslist()) ->
-    {ok, nksip:optslist()} | {error, term()}.
-
-parse_config(Opts) ->
-    Defaults = [
-        {nksip_registrar_default_time, 3600},     % (secs) 1 hour
-        {nksip_registrar_min_time, 60},           % (secs) 1 min
-        {nksip_registrar_max_time, 86400}         % (secs) 24 hour
-    ],
-    Opts1 = nksip_lib:defaults(Opts, Defaults),
-    Allow = nksip_lib:get_value(allow, Opts1),
-    Opts2 = case lists:member(<<"REGISTER">>, Allow) of
-        true -> 
-            Opts1;
-        false -> 
-            nksip_lib:store_value(allow, Allow++[<<"REGISTER">>], Opts1)
-    end,
-    try
-        case nksip_lib:get_value(nksip_registrar_default_time, Opts2) of
-            Def when is_integer(Def), Def>=5 -> 
-                ok;
-            _ -> 
-                throw(nksip_registrar_default_time)
-        end,
-        case nksip_lib:get_value(nksip_registrar_min_time, Opts2) of
-            Min when is_integer(Min), Min>=1 -> 
-                ok;
-            _ -> 
-                throw(nksip_registrar_min_time)
-        end,
-        case nksip_lib:get_value(nksip_registrar_max_time, Opts2) of
-            Max when is_integer(Max), Max>=60 -> 
-                ok;
-            _ -> 
-                throw(nksip_registrar_max_time)
-        end,
-        Times = #nksip_registrar_time{
-            min = nksip_lib:get_value(nksip_registrar_min_time, Opts2),
-            max = nksip_lib:get_value(nksip_registrar_max_time, Opts2),
-            default = nksip_lib:get_value(nksip_registrar_default_time, Opts2)
-        },
-        Cached1 = nksip_lib:get_value(cached_configs, Opts2, []),
-        Cached2 = nksip_lib:store_value(config_nksip_registrar_times, Times, Cached1),
-        Opts3 = nksip_lib:store_value(cached_configs, Cached2, Opts2),
-        {ok, Opts3}
-    catch
-        throw:OptName -> {error, {invalid_config, OptName}}
+plugin_start(#{id:=SrvId}=SrvSpec) ->
+    case nkservice_util:parse_syntax(SrvSpec, syntax(), defaults()) of
+        {ok, SrvSpec1} ->
+            UpdFun = fun(Allow) -> nklib_util:store_value(<<"REGISTER">>, Allow) end,
+            SrvSpec2 = nksip:plugin_update_value(sip_allow, UpdFun, SrvSpec1),
+            #{
+                sip_registrar_min_time := Min, 
+                sip_registrar_max_time := Max,
+                sip_registrar_default_time := Default,
+                cache := OldCache
+            } = SrvSpec2,
+            Timers = #nksip_registrar_time{min=Min, max=Max, default=Default},
+            Cache = #{sip_registrar_time=>Timers},
+            lager:info("Plugin ~p started (~p)", [?MODULE, SrvId]),
+            {ok, SrvSpec2#{cache:=maps:merge(OldCache, Cache)}};
+        {error, Error} ->
+            {stop, Error}
     end.
 
 
-%% @doc Called when the plugin is shutdown
--spec terminate(nksip:app_id(), nksip_sipapp_srv:state()) ->
-    {ok, nksip_sipapp_srv:state()}.
+plugin_stop(#{id:=SrvId}=SrvSpec) ->
+    clear(SrvId),
+    UpdFun = fun(Allow) -> Allow -- [<<"REGISTER">>] end,
+    SrvSpec1 = nksip:plugin_update_value(sip_allow, UpdFun, SrvSpec),
+    SrvSpec2 = maps:without(maps:keys(syntax()), SrvSpec1),
+    lager:info("Plugin ~p stopped (~p)", [?MODULE, SrvId]),
+    {ok, SrvSpec2}.
 
-terminate(AppId, SipAppState) ->  
-    clear(AppId),
-    {ok, SipAppState}.
 
+syntax() ->
+    #{
+        sip_registrar_default_time => {integer, 5, none},
+        sip_registrar_min_time => {integer, 1, none},
+        sip_registrar_max_time => {integer, 60, none}
+    }.
+
+defaults() ->
+    #{
+        sip_registrar_default_time => 3600,     % (secs) 1 hour
+        sip_registrar_min_time => 60,           % (secs) 1 min
+        sip_registrar_max_time => 86400         % (secs) 24 hour
+    }.
 
 
 
@@ -127,65 +111,65 @@ terminate(AppId, SipAppState) ->
 
 %% @doc Gets all current registered contacts for an AOR.
 %% Use nksip_gruu:find/2 to process gruu options.
--spec find(nksip:app_name()|nksip:app_id(), nksip:aor() | nksip:uri()) ->
+-spec find(nkservice:name()|nksip:srv_id(), nksip:aor() | nksip:uri()) ->
     [nksip:uri()].
 
-find(App, {Scheme, User, Domain}) ->
-    find(App, Scheme, User, Domain);
+find(Srv, {Scheme, User, Domain}) ->
+    find(Srv, Scheme, User, Domain);
 
-find(App, Uri) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> nksip_registrar_lib:find(AppId, Uri);
+find(Srv, Uri) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> nksip_registrar_lib:find(SrvId, Uri);
         _ -> []
     end.
 
 
 %% @doc Gets all current registered contacts for an AOR.
--spec find(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+-spec find(nkservice:name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     [nksip:uri()].
 
-find(App, Scheme, User, Domain) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> nksip_registrar_lib:find(AppId, Scheme, User, Domain);
+find(Srv, Scheme, User, Domain) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> nksip_registrar_lib:find(SrvId, Scheme, User, Domain);
         _ -> []
     end.
 
 
 %% @doc Gets all current registered contacts for an AOR, aggregated on Q values.
 %% You can use this function to generate a parallel and/o serial proxy request.
--spec qfind(nksip:app_name()|nksip:app_id(), AOR::nksip:aor()) ->
+-spec qfind(nkservice:name()|nksip:srv_id(), AOR::nksip:aor()) ->
     nksip:uri_set().
 
-qfind(App, {Scheme, User, Domain}) ->
-    qfind(App, Scheme, User, Domain).
+qfind(Srv, {Scheme, User, Domain}) ->
+    qfind(Srv, Scheme, User, Domain).
 
 
 %% @doc Gets all current registered contacts for an AOR, aggregated on Q values.
 %% You can use this function to generate a parallel and/o serial proxy request.
--spec qfind(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+-spec qfind(nkservice:name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     nksip:uri_set().
 
-qfind(App, Scheme, User, Domain) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} -> nksip_registrar_lib:qfind(AppId, Scheme, User, Domain);
+qfind(Srv, Scheme, User, Domain) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} -> nksip_registrar_lib:qfind(SrvId, Scheme, User, Domain);
         _ ->
             []
     end.
 
 
 %% @doc Deletes all registered contacts for an AOR (<i>Address-Of-Record</i>).
--spec delete(nksip:app_name()|nksip:app_id(), nksip:scheme(), binary(), binary()) ->
+-spec delete(nkservice:name()|nksip:srv_id(), nksip:scheme(), binary(), binary()) ->
     ok | not_found | callback_error.
 
-delete(App, Scheme, User, Domain) ->
-    case nksip:find_app_id(App) of
-        {ok, AppId} ->
+delete(Srv, Scheme, User, Domain) ->
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} ->
             AOR = {
-                nksip_parse:scheme(Scheme), 
-                nksip_lib:to_binary(User), 
-                nksip_lib:to_binary(Domain)
+                nklib_parse:scheme(Scheme), 
+                nklib_util:to_binary(User), 
+                nklib_util:to_binary(Domain)
             },
-            nksip_registrar_lib:store_del(AppId, AOR);
+            nksip_registrar_lib:store_del(SrvId, AOR);
         _ ->
             not_found
     end.
@@ -201,12 +185,12 @@ is_registered(#sipmsg{class={req, 'REGISTER'}}) ->
     false;
 
 is_registered(#sipmsg{
-                app_id = AppId, 
+                srv_id = SrvId, 
                 from = {#uri{scheme=Scheme, user=User, domain=Domain}, _},
-                transport=Transport
+                nkport=NkPort
             }) ->
-    case catch nksip_registrar_lib:store_get(AppId, {Scheme, User, Domain}) of
-        {ok, Regs} -> nksip_registrar_lib:is_registered(Regs, Transport);
+    case catch nksip_registrar_lib:store_get(SrvId, {Scheme, User, Domain}) of
+        {ok, Regs} -> nksip_registrar_lib:is_registered(Regs, NkPort);
         _ -> false
     end.
 
@@ -237,18 +221,18 @@ request(Req) ->
     nksip_registrar_lib:request(Req).
 
 
-%% @doc Clear all stored records by a SipApp's core.
--spec clear(nksip:app_name()|nksip:app_id()) -> 
-    ok | callback_error | sipapp_not_found.
+%% @doc Clear all stored records by a Service's core.
+-spec clear(nkservice:name()|nksip:srv_id()) -> 
+    ok | callback_error | service_not_found.
 
-clear(App) -> 
-    case nksip:find_app_id(App) of
-        {ok, AppId} ->
-            case nksip_registrar_lib:store_del_all(AppId) of
+clear(Srv) -> 
+    case nkservice_server:get_srv_id(Srv) of
+        {ok, SrvId} ->
+            case nksip_registrar_lib:store_del_all(SrvId) of
                 ok -> ok;
                 _ -> callback_error
             end;
         _ ->
-            sipapp_not_found
+            service_not_found
     end.
 

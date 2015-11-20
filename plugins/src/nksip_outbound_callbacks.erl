@@ -1,6 +1,6 @@
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2013 Carlos Gonzalez Florido.  All Rights Reserved.
+%% Copyright (c) 2015 Carlos Gonzalez Florido.  All Rights Reserved.
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,19 +22,20 @@
 -module(nksip_outbound_callbacks).
 -author('Carlos Gonzalez <carlosj.gf@gmail.com>').
 
+-include_lib("nklib/include/nklib.hrl").
 -include("../include/nksip.hrl").
 -include("nksip_registrar.hrl").
--export([nkcb_uac_proxy_opts/2, nkcb_transport_uac_headers/6]).
--export([nkcb_nksip_registrar_request_opts/2, nkcb_nksip_registrar_request_reply/3,
-	     nkcb_nksip_registrar_get_index/2]).
+-export([nks_sip_uac_proxy_opts/2, nks_sip_transport_uac_headers/6]).
+-export([nks_sip_registrar_request_opts/2, nks_sip_registrar_request_reply/3,
+	     nks_sip_registrar_get_index/2]).
 
 
 
 %% @doc Called to add options for proxy UAC processing
--spec nkcb_uac_proxy_opts(nksip:request(), nksip:optslist()) ->
+-spec nks_sip_uac_proxy_opts(nksip:request(), nksip:optslist()) ->
     {continue, list()} | {reply, nksip:sipreply()}.
 
-nkcb_uac_proxy_opts(Req, ReqOpts) ->
+nks_sip_uac_proxy_opts(Req, ReqOpts) ->
     case nksip_outbound_lib:proxy_opts(Req, ReqOpts) of
         {ok, ProxyOpts} -> 
             {continue, [Req, ProxyOpts]};
@@ -44,13 +45,13 @@ nkcb_uac_proxy_opts(Req, ReqOpts) ->
 
 
 %% @doc Called when preparing the request for sending
-nkcb_transport_uac_headers(Req, Opts, Scheme, Proto, Host, Port) ->
-    Req1 = nksip_outbound_lib:add_headers(Req, Opts, Scheme, Proto, Host, Port),
+nks_sip_transport_uac_headers(Req, Opts, Scheme, Transp, Host, Port) ->
+    Req1 = nksip_outbound_lib:add_headers(Req, Opts, Scheme, Transp, Host, Port),
     {ok, Req1}.
 
 
 %% @private
-nkcb_nksip_registrar_request_opts(Req, Opts) ->
+nks_sip_registrar_request_opts(Req, Opts) ->
 	nksip_outbound_lib:check_several_reg_id(Req#sipmsg.contacts),
     case nksip_outbound_lib:registrar(Req) of
         {true, Req1} -> Opts1 = [{outbound, true}|Opts];
@@ -62,7 +63,7 @@ nkcb_nksip_registrar_request_opts(Req, Opts) ->
 
 
 %% @private
-nkcb_nksip_registrar_request_reply(Reply, Regs, Opts) ->
+nks_sip_registrar_request_reply(Reply, Regs, Opts) ->
 	Reply1 = case Reply of
 		{ok, ReplyOpts} ->
 	        case 
@@ -79,13 +80,13 @@ nkcb_nksip_registrar_request_reply(Reply, Regs, Opts) ->
 
 
 %% @private
-nkcb_nksip_registrar_get_index(#uri{ext_opts=ExtOpts}=Contact, Opts) ->
-    InstId = case nksip_lib:get_value(<<"+sip.instance">>, ExtOpts) of
+nks_sip_registrar_get_index(#uri{ext_opts=ExtOpts}=Contact, Opts) ->
+    InstId = case nklib_util:get_value(<<"+sip.instance">>, ExtOpts) of
         undefined -> <<>>;
-        Inst0 -> nksip_lib:hash(Inst0)
+        Inst0 -> nklib_util:hash(Inst0)
     end,
-    Outbound = nksip_lib:get_value(outbound, Opts),
-    RegId = case nksip_lib:get_value(<<"reg-id">>, ExtOpts) of
+    Outbound = nklib_util:get_value(outbound, Opts),
+    RegId = case nklib_util:get_value(<<"reg-id">>, ExtOpts) of
         undefined -> <<>>;
         _ when Outbound == undefined -> <<>>;
         _ when Outbound == false -> throw(first_hop_lacks_outbound);
