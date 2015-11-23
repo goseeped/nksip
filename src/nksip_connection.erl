@@ -513,8 +513,8 @@ parse(<<16#0D, 16#0A, 16#0D, 16#0A, 16#00, 16#0D, 16#0A, 16#51, 16#55, 16#49, 16
         1:4,             % IPv4 address family is only supported at the moment
         _ProxyProto:4,
         Length:16,       % address info + extra info block
-        ProxySrcAddr:32,
-        _ProxyDstAddr:32,
+        ProxySrcAddr:4/binary,
+        _ProxyDstAddr:4/binary,
         ProxySrcPort:16,
         _ProxyDstPort:16,
         Rest/binary>>, State) ->
