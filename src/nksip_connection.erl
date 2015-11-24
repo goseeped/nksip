@@ -25,6 +25,7 @@
 
 -export([is_max/1, send/2, async_send/2, stop/2]).
 -export([start_refresh/3, stop_refresh/1, set_timeout/2, get_transport/1, get_refresh/1]).
+-export([get_proxy_endpoint/1]).
 -export([incoming/2, stop_all/0]).
 -export([start_link/4, init/1, terminate/2, code_change/3, handle_call/3,   
             handle_cast/2, handle_info/2]).
@@ -183,6 +184,20 @@ get_refresh(Pid) ->
             error 
     end.
 
+%% @doc Gets external endpoint ip address and port (using proxy protocol v2)
+-spec get_proxy_endpoint(pid()) ->
+    {ok, undefined | {inet:ip_address(), inet:port_number()}} | error.
+get_proxy_endpoint(Pid) ->
+    case is_process_alive(Pid) of
+        true ->
+            case catch gen_server:call(Pid, get_proxy_endpoint) of
+                {ok, {undefined, undefined}} -> {ok, undefined};
+                {ok, {IP, Port}} -> {ok, {IP, Port}};
+                _ -> error
+            end;
+        false ->
+            error
+    end.
 
 %% @private 
 -spec incoming(pid(), binary()) ->
@@ -308,6 +323,10 @@ handle_call(get_refresh, From, State) ->
     end,
     gen_server:reply(From, {ok, Reply}),
     do_noreply(State);
+
+handle_call(get_proxy_endpoint, _From, State) ->
+    Res = {State#state.proxy_src_ip, State#state.proxy_src_port},
+    {reply, {ok, Res}, State};
 
 handle_call(Msg, _From, State) ->
     lager:error("Module ~p received unexpected call: ~p", [?MODULE, Msg]),
