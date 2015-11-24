@@ -36,6 +36,7 @@
 -define(MAX_MSG, 65535).
 -define(MAX_UDP, 1500).
 
+
 %% ===================================================================
 %% Public
 %% ===================================================================
@@ -512,18 +513,16 @@ parse(<<16#0D, 16#0A, 16#0D, 16#0A, 16#00, 16#0D, 16#0A, 16#51, 16#55, 16#49, 16
         16#21,           % version, command=PROXY
         1:4,             % IPv4 address family is only supported at the moment
         _ProxyProto:4,
-        Length:16,       % address info + extra info block
+        _Length:16,       % address info + extra info block
         ProxySrcAddr:4/binary,
         _ProxyDstAddr:4/binary,
         ProxySrcPort:16,
         _ProxyDstPort:16,
-        Rest/binary>>, State) ->
-    Skip = Length - 12, % 12=2*4 + 2*2 address block length
-    <<_Extra:Skip/binary, Binary/binary>> = Rest,
+        _Rest/binary>>, State) ->
     <<A1:8, A2:8, A3:8, A4:8>> = ProxySrcAddr,
     State1 = State#state{proxy_src_ip={A1, A2, A3, A4}, % inet:ip4_address()
                          proxy_src_port=ProxySrcPort},
-    parse(Binary, State1);
+    do_noreply(State1);
 
 parse(Binary, #state{buffer=Buffer}=State) ->
     Data = case Buffer of
