@@ -227,8 +227,8 @@ stop_all() ->
     timeout :: non_neg_integer(),
     nat_ip :: inet:ip_address(),
     nat_port :: inet:port_number(),
-    proxy_src_ip :: inet:ip_address(),
-    proxy_src_port :: inet:port_number(),
+    proxy_dst_ip :: inet:ip_address(),
+    proxy_dst_port :: inet:port_number(),
     in_refresh :: boolean(),
     refresh_timer :: reference(),
     refresh_time :: pos_integer(),
@@ -325,7 +325,7 @@ handle_call(get_refresh, From, State) ->
     do_noreply(State);
 
 handle_call(get_proxy_endpoint, _From, State) ->
-    Res = {State#state.proxy_src_ip, State#state.proxy_src_port},
+    Res = {State#state.proxy_dst_ip, State#state.proxy_dst_port},
     {reply, {ok, Res}, State};
 
 handle_call(Msg, _From, State) ->
@@ -533,14 +533,14 @@ parse(<<16#0D, 16#0A, 16#0D, 16#0A, 16#00, 16#0D, 16#0A, 16#51, 16#55, 16#49, 16
         1:4,             % IPv4 address family is only supported at the moment
         _ProxyProto:4,
         _Length:16,       % address info + extra info block
-        ProxySrcAddr:4/binary,
-        _ProxyDstAddr:4/binary,
-        ProxySrcPort:16,
-        _ProxyDstPort:16,
+        _ProxySrcAddr:4/binary,
+        ProxyDstAddr:4/binary,
+        _ProxySrcPort:16,
+        ProxyDstPort:16,
         _Rest/binary>>, State) ->
-    <<A1:8, A2:8, A3:8, A4:8>> = ProxySrcAddr,
-    State1 = State#state{proxy_src_ip={A1, A2, A3, A4}, % inet:ip4_address()
-                         proxy_src_port=ProxySrcPort},
+    <<A1:8, A2:8, A3:8, A4:8>> = ProxyDstAddr,
+    State1 = State#state{proxy_dst_ip={A1, A2, A3, A4}, % inet:ip4_address()
+                         proxy_dst_port=ProxyDstPort},
     do_noreply(State1);
 
 parse(Binary, #state{buffer=Buffer}=State) ->
