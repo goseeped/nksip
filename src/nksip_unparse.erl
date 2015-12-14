@@ -598,6 +598,9 @@ capitalize(Name) ->
 
 
 % @private 
+capitalize(<<$#, Name/bits>>, _, <<>>) -> % lock header case if starts with "#"
+    Name;
+
 capitalize(<<>>, _, Acc) ->
     Acc;
 

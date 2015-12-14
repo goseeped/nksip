@@ -265,6 +265,9 @@ update_tag({Value, Tag}, _) ->
 -spec name(atom()|list()|binary()) ->
     binary().
 
+name(<<$#, Name/bits>>) ->
+    Name; % allow header case lock
+
 name(Name) when is_binary(Name) ->
     << 
         << (case Ch>=$A andalso Ch=<$Z of true -> Ch+32; false -> Ch end) >> 
