@@ -121,17 +121,21 @@ outbound_opts(tcp, _AppId) ->
 outbound_opts(tls, AppId) ->
     case code:priv_dir(nksip) of
         PrivDir when is_list(PrivDir) ->
+            DefCA = filename:join(PrivDir, "ca.pem"),
             DefCert = filename:join(PrivDir, "cert.pem"),
             DefKey = filename:join(PrivDir, "key.pem");
         _ ->
+            DefCA = "",
             DefCert = "",
             DefKey = ""
     end,
     Config = nksip_sipapp_srv:config(AppId),
+    CA = nksip_lib:get_value(cacertfile, Config, DefCA),
     Cert = nksip_lib:get_value(certfile, Config, DefCert),
     Key = nksip_lib:get_value(keyfile, Config, DefKey),
     lists:flatten([
         binary, {active, false}, {nodelay, true}, {keepalive, true}, {packet, raw},
+        case CA of "" -> []; _ -> {cacertfile, CA} end,
         case Cert of "" -> []; _ -> {certfile, Cert} end,
         case Key of "" -> []; _ -> {keyfile, Key} end
     ]).
@@ -153,12 +157,15 @@ listen_opts(tcp, Ip, Port, Opts) ->
 listen_opts(tls, Ip, Port, Opts) ->
     case code:priv_dir(nksip) of
         PrivDir when is_list(PrivDir) ->
+            DefCA = filename:join(PrivDir, "ca.pem"),
             DefCert = filename:join(PrivDir, "cert.pem"),
             DefKey = filename:join(PrivDir, "key.pem");
         _ ->
+            DefCA = "",
             DefCert = "",
             DefKey = ""
     end,
+    CA = nksip_lib:get_value(cacertfile, Opts, DefCA),
     Cert = nksip_lib:get_value(certfile, Opts, DefCert),
     Key = nksip_lib:get_value(keyfile, Opts, DefKey),
     Max = nksip_lib:get_value(max_connections, Opts, 100),
@@ -166,6 +173,7 @@ listen_opts(tls, Ip, Port, Opts) ->
         {ip, Ip}, {port, Port}, {active, false}, 
         {nodelay, true}, {keepalive, true}, {packet, raw},
         {max_connections, Max},
+        case CA of "" -> []; _ -> {cacertfile, CA} end,
         case Cert of "" -> []; _ -> {certfile, Cert} end,
         case Key of "" -> []; _ -> {keyfile, Key} end
     ]).
