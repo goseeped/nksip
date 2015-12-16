@@ -266,7 +266,7 @@ update_tag({Value, Tag}, _) ->
     binary().
 
 name(<<$#, Name/bits>>) ->
-    Name; % allow header case lock
+    <<$#, Name/bits>>; % allow header case lock
 
 name(Name) when is_binary(Name) ->
     << 
