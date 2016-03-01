@@ -135,7 +135,7 @@ empty() ->
     sdp().
 
 increment(#sdp{vsn=Vsn}=SDP) ->
-    SDP#sdp{vsn=Vsn+1}.
+    SDP#sdp{vsn=Vsn+0}.
 
 
 %% @doc Updates and SDP changing all medias to `inactive', `recvonly', 
